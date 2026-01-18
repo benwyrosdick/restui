@@ -21,22 +21,27 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     // URL display with cursor if editing
-    let url_display = if is_editing {
-        format!("{}|", &app.current_request.url)
+    let url_text = &app.current_request.url;
+    let url_spans: Vec<Span> = if is_editing {
+        // Insert cursor at the cursor position
+        let cursor_pos = app.cursor_position.min(url_text.len());
+        let (before, after) = url_text.split_at(cursor_pos);
+        vec![
+            Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
+            Span::styled("│", Style::default().fg(Color::White).bg(Color::DarkGray)),
+            Span::styled(after.to_string(), Style::default().bg(Color::DarkGray)),
+        ]
+    } else if url_text.is_empty() {
+        vec![Span::styled(
+            "Enter URL... (press Enter or 'i' to edit)",
+            Style::default().fg(Color::DarkGray),
+        )]
     } else {
-        app.current_request.url.clone()
-    };
-
-    let url_style = if is_editing {
-        Style::default().bg(Color::DarkGray)
-    } else if app.current_request.url.is_empty() {
-        Style::default().fg(Color::DarkGray)
-    } else {
-        Style::default()
+        vec![Span::styled(url_text.clone(), Style::default())]
     };
 
     // Build the URL line
-    let url_line = Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             format!(" {} ", app.current_request.method.as_str()),
             Style::default()
@@ -45,15 +50,9 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(" "),
-        Span::styled(
-            if url_display.is_empty() {
-                "Enter URL... (press Enter or 'i' to edit)".to_string()
-            } else {
-                url_display
-            },
-            url_style,
-        ),
-    ]);
+    ];
+    spans.extend(url_spans);
+    let url_line = Line::from(spans);
 
     // Border style based on focus
     let border_style = if is_editing {

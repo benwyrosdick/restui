@@ -10,6 +10,23 @@ use ratatui::{
 
 use super::layout::bordered_block;
 
+/// Helper to create spans with cursor for editing text fields
+fn text_with_cursor<'a>(text: &str, cursor_pos: usize, is_editing: bool, placeholder: &str, base_style: Style) -> Vec<Span<'a>> {
+    if is_editing {
+        let pos = cursor_pos.min(text.len());
+        let (before, after) = text.split_at(pos);
+        vec![
+            Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
+            Span::styled("│", Style::default().fg(Color::White).bg(Color::DarkGray)),
+            Span::styled(after.to_string(), Style::default().bg(Color::DarkGray)),
+        ]
+    } else if text.is_empty() {
+        vec![Span::styled(placeholder.to_string(), Style::default().fg(Color::DarkGray))]
+    } else {
+        vec![Span::styled(text.to_string(), base_style)]
+    }
+}
+
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestEditor;
     let block = bordered_block("Request", focused);
@@ -82,23 +99,7 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect) {
         let is_editing_value = app.input_mode == InputMode::Editing
             && app.editing_field == Some(EditingField::HeaderValue(i));
 
-        let key_display = if is_editing_key {
-            format!("{}|", &header.key)
-        } else if header.key.is_empty() {
-            "key".to_string()
-        } else {
-            header.key.clone()
-        };
-
-        let value_display = if is_editing_value {
-            format!("{}|", &header.value)
-        } else if header.value.is_empty() {
-            "value".to_string()
-        } else {
-            header.value.clone()
-        };
-
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::styled(
                 format!("{} ", enabled_indicator),
                 Style::default().fg(if header.enabled {
@@ -107,28 +108,27 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect) {
                     Color::DarkGray
                 }),
             ),
-            Span::styled(
-                key_display,
-                if is_editing_key {
-                    Style::default().bg(Color::DarkGray)
-                } else if header.key.is_empty() {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default().fg(Color::Cyan)
-                },
-            ),
-            Span::raw(": "),
-            Span::styled(
-                value_display,
-                if is_editing_value {
-                    Style::default().bg(Color::DarkGray)
-                } else if header.value.is_empty() {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default()
-                },
-            ),
-        ]));
+        ];
+
+        spans.extend(text_with_cursor(
+            &header.key,
+            app.cursor_position,
+            is_editing_key,
+            "key",
+            Style::default().fg(Color::Cyan),
+        ));
+
+        spans.push(Span::raw(": "));
+
+        spans.extend(text_with_cursor(
+            &header.value,
+            app.cursor_position,
+            is_editing_value,
+            "value",
+            Style::default(),
+        ));
+
+        lines.push(Line::from(spans));
     }
 
     if lines.is_empty() {
@@ -146,24 +146,15 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
     let is_editing =
         app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Body);
 
-    let body_display = if is_editing {
-        format!("{}|", &app.current_request.body)
-    } else if app.current_request.body.is_empty() {
-        "Enter request body...".to_string()
-    } else {
-        app.current_request.body.clone()
-    };
+    let body_spans = text_with_cursor(
+        &app.current_request.body,
+        app.cursor_position,
+        is_editing,
+        "Enter request body...",
+        Style::default(),
+    );
 
-    let style = if app.current_request.body.is_empty() && !is_editing {
-        Style::default().fg(Color::DarkGray)
-    } else if is_editing {
-        Style::default().bg(Color::DarkGray)
-    } else {
-        Style::default()
-    };
-
-    let para = Paragraph::new(body_display)
-        .style(style)
+    let para = Paragraph::new(Line::from(body_spans))
         .block(
             Block::default()
                 .borders(Borders::ALL)
@@ -207,28 +198,26 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
             let is_editing = app.input_mode == InputMode::Editing
                 && app.editing_field == Some(EditingField::AuthBearerToken);
 
-            let token_display = if is_editing {
-                format!("{}|", &auth.bearer_token)
+            let mut spans = vec![Span::styled("Token: ", Style::default().fg(Color::DarkGray))];
+            if is_editing {
+                // Show full token with cursor when editing
+                spans.extend(text_with_cursor(
+                    &auth.bearer_token,
+                    app.cursor_position,
+                    true,
+                    "Enter token...",
+                    Style::default(),
+                ));
             } else if auth.bearer_token.is_empty() {
-                "Enter token...".to_string()
+                spans.push(Span::styled("Enter token...", Style::default().fg(Color::DarkGray)));
             } else {
-                // Mask the token for display
-                format!("{}...", &auth.bearer_token.chars().take(20).collect::<String>())
-            };
-
-            lines.push(Line::from(vec![
-                Span::styled("Token: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    token_display,
-                    if is_editing {
-                        Style::default().bg(Color::DarkGray)
-                    } else if auth.bearer_token.is_empty() {
-                        Style::default().fg(Color::DarkGray)
-                    } else {
-                        Style::default()
-                    },
-                ),
-            ]));
+                // Truncate when not editing
+                spans.push(Span::styled(
+                    format!("{}...", &auth.bearer_token.chars().take(20).collect::<String>()),
+                    Style::default(),
+                ));
+            }
+            lines.push(Line::from(spans));
         }
         AuthType::Basic => {
             let is_editing_user = app.input_mode == InputMode::Editing
@@ -236,41 +225,34 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
             let is_editing_pass = app.input_mode == InputMode::Editing
                 && app.editing_field == Some(EditingField::AuthBasicPassword);
 
-            lines.push(Line::from(vec![
-                Span::styled("Username: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    if is_editing_user {
-                        format!("{}|", &auth.basic_username)
-                    } else if auth.basic_username.is_empty() {
-                        "Enter username...".to_string()
-                    } else {
-                        auth.basic_username.clone()
-                    },
-                    if is_editing_user {
-                        Style::default().bg(Color::DarkGray)
-                    } else {
-                        Style::default()
-                    },
-                ),
-            ]));
+            let mut user_spans = vec![Span::styled("Username: ", Style::default().fg(Color::DarkGray))];
+            user_spans.extend(text_with_cursor(
+                &auth.basic_username,
+                app.cursor_position,
+                is_editing_user,
+                "Enter username...",
+                Style::default(),
+            ));
+            lines.push(Line::from(user_spans));
 
-            lines.push(Line::from(vec![
-                Span::styled("Password: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    if is_editing_pass {
-                        format!("{}|", "*".repeat(auth.basic_password.len()))
-                    } else if auth.basic_password.is_empty() {
-                        "Enter password...".to_string()
-                    } else {
-                        "*".repeat(auth.basic_password.len())
-                    },
-                    if is_editing_pass {
-                        Style::default().bg(Color::DarkGray)
-                    } else {
-                        Style::default()
-                    },
-                ),
-            ]));
+            // Password field - show masked or with cursor
+            let mut pass_spans = vec![Span::styled("Password: ", Style::default().fg(Color::DarkGray))];
+            if is_editing_pass {
+                // Show masked password with cursor at correct position
+                let masked = "*".repeat(auth.basic_password.len());
+                pass_spans.extend(text_with_cursor(
+                    &masked,
+                    app.cursor_position,
+                    true,
+                    "Enter password...",
+                    Style::default(),
+                ));
+            } else if auth.basic_password.is_empty() {
+                pass_spans.push(Span::styled("Enter password...", Style::default().fg(Color::DarkGray)));
+            } else {
+                pass_spans.push(Span::styled("*".repeat(auth.basic_password.len()), Style::default()));
+            }
+            lines.push(Line::from(pass_spans));
         }
         AuthType::ApiKey => {
             let is_editing_name = app.input_mode == InputMode::Editing
@@ -278,41 +260,35 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
             let is_editing_value = app.input_mode == InputMode::Editing
                 && app.editing_field == Some(EditingField::AuthApiKeyValue);
 
-            lines.push(Line::from(vec![
-                Span::styled("Key Name: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    if is_editing_name {
-                        format!("{}|", &auth.api_key_name)
-                    } else if auth.api_key_name.is_empty() {
-                        "e.g., X-API-Key".to_string()
-                    } else {
-                        auth.api_key_name.clone()
-                    },
-                    if is_editing_name {
-                        Style::default().bg(Color::DarkGray)
-                    } else {
-                        Style::default()
-                    },
-                ),
-            ]));
+            let mut name_spans = vec![Span::styled("Key Name: ", Style::default().fg(Color::DarkGray))];
+            name_spans.extend(text_with_cursor(
+                &auth.api_key_name,
+                app.cursor_position,
+                is_editing_name,
+                "e.g., X-API-Key",
+                Style::default(),
+            ));
+            lines.push(Line::from(name_spans));
 
-            lines.push(Line::from(vec![
-                Span::styled("Key Value: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(
-                    if is_editing_value {
-                        format!("{}|", &auth.api_key_value)
-                    } else if auth.api_key_value.is_empty() {
-                        "Enter API key...".to_string()
-                    } else {
-                        format!("{}...", &auth.api_key_value.chars().take(20).collect::<String>())
-                    },
-                    if is_editing_value {
-                        Style::default().bg(Color::DarkGray)
-                    } else {
-                        Style::default()
-                    },
-                ),
-            ]));
+            let mut value_spans = vec![Span::styled("Key Value: ", Style::default().fg(Color::DarkGray))];
+            if is_editing_value {
+                value_spans.extend(text_with_cursor(
+                    &auth.api_key_value,
+                    app.cursor_position,
+                    true,
+                    "Enter API key...",
+                    Style::default(),
+                ));
+            } else if auth.api_key_value.is_empty() {
+                value_spans.push(Span::styled("Enter API key...", Style::default().fg(Color::DarkGray)));
+            } else {
+                // Truncate when not editing
+                value_spans.push(Span::styled(
+                    format!("{}...", &auth.api_key_value.chars().take(20).collect::<String>()),
+                    Style::default(),
+                ));
+            }
+            lines.push(Line::from(value_spans));
 
             lines.push(Line::from(vec![
                 Span::styled("Location: ", Style::default().fg(Color::DarkGray)),
@@ -343,23 +319,7 @@ fn draw_params(frame: &mut Frame, app: &App, area: Rect) {
         let is_editing_value = app.input_mode == InputMode::Editing
             && app.editing_field == Some(EditingField::ParamValue(i));
 
-        let key_display = if is_editing_key {
-            format!("{}|", &param.key)
-        } else if param.key.is_empty() {
-            "key".to_string()
-        } else {
-            param.key.clone()
-        };
-
-        let value_display = if is_editing_value {
-            format!("{}|", &param.value)
-        } else if param.value.is_empty() {
-            "value".to_string()
-        } else {
-            param.value.clone()
-        };
-
-        lines.push(Line::from(vec![
+        let mut spans = vec![
             Span::styled(
                 format!("{} ", enabled_indicator),
                 Style::default().fg(if param.enabled {
@@ -368,28 +328,27 @@ fn draw_params(frame: &mut Frame, app: &App, area: Rect) {
                     Color::DarkGray
                 }),
             ),
-            Span::styled(
-                key_display,
-                if is_editing_key {
-                    Style::default().bg(Color::DarkGray)
-                } else if param.key.is_empty() {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default().fg(Color::Cyan)
-                },
-            ),
-            Span::raw("="),
-            Span::styled(
-                value_display,
-                if is_editing_value {
-                    Style::default().bg(Color::DarkGray)
-                } else if param.value.is_empty() {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default()
-                },
-            ),
-        ]));
+        ];
+
+        spans.extend(text_with_cursor(
+            &param.key,
+            app.cursor_position,
+            is_editing_key,
+            "key",
+            Style::default().fg(Color::Cyan),
+        ));
+
+        spans.push(Span::raw("="));
+
+        spans.extend(text_with_cursor(
+            &param.value,
+            app.cursor_position,
+            is_editing_value,
+            "value",
+            Style::default(),
+        ));
+
+        lines.push(Line::from(spans));
     }
 
     if lines.is_empty() {

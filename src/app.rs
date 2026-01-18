@@ -148,6 +148,7 @@ pub struct App {
     pub request_tab: RequestTab,
     pub input_mode: InputMode,
     pub editing_field: Option<EditingField>,
+    pub cursor_position: usize,
 
     // Selection state
     pub selected_collection: usize,
@@ -217,6 +218,7 @@ impl App {
             request_tab: RequestTab::default(),
             input_mode: InputMode::Normal,
             editing_field: None,
+            cursor_position: 0,
             selected_collection: 0,
             selected_item: 0,
             selected_history: 0,
@@ -372,7 +374,7 @@ impl App {
                 self.focused_panel = FocusedPanel::UrlBar;
                 // Start editing URL on click
                 self.input_mode = InputMode::Editing;
-                self.editing_field = Some(EditingField::Url);
+                self.set_editing_field(EditingField::Url);
                 return;
             }
         }
@@ -462,7 +464,7 @@ impl App {
             KeyCode::Char('i') => {
                 if self.focused_panel == FocusedPanel::UrlBar {
                     self.input_mode = InputMode::Editing;
-                    self.editing_field = Some(EditingField::Url);
+                    self.set_editing_field(EditingField::Url);
                 } else if self.focused_panel == FocusedPanel::RequestEditor {
                     self.enter_edit_mode();
                 }
@@ -550,16 +552,31 @@ impl App {
                 self.next_editing_field();
             }
             KeyCode::Enter => {
-                // For body, add newline
+                // For body, add newline at cursor
                 // For other fields, move to next field
                 if matches!(self.editing_field, Some(EditingField::Body)) {
-                    self.current_request.body.push('\n');
+                    self.handle_char_input('\n');
                 } else {
                     self.next_editing_field();
                 }
             }
             KeyCode::Backspace => {
                 self.handle_backspace();
+            }
+            KeyCode::Delete => {
+                self.handle_delete();
+            }
+            KeyCode::Left => {
+                self.cursor_left();
+            }
+            KeyCode::Right => {
+                self.cursor_right();
+            }
+            KeyCode::Home => {
+                self.cursor_home();
+            }
+            KeyCode::End => {
+                self.cursor_end();
             }
             KeyCode::Char(c) => {
                 self.handle_char_input(c);
@@ -569,100 +586,118 @@ impl App {
         Ok(false)
     }
 
+    /// Get mutable reference to current editing field's text
+    fn get_current_field_mut(&mut self) -> Option<&mut String> {
+        let field = self.editing_field.clone()?;
+        match field {
+            EditingField::Url => Some(&mut self.current_request.url),
+            EditingField::Body => Some(&mut self.current_request.body),
+            EditingField::HeaderKey(i) => self.current_request.headers.get_mut(i).map(|h| &mut h.key),
+            EditingField::HeaderValue(i) => self.current_request.headers.get_mut(i).map(|h| &mut h.value),
+            EditingField::ParamKey(i) => self.current_request.query_params.get_mut(i).map(|p| &mut p.key),
+            EditingField::ParamValue(i) => self.current_request.query_params.get_mut(i).map(|p| &mut p.value),
+            EditingField::AuthBearerToken => Some(&mut self.current_request.auth.bearer_token),
+            EditingField::AuthBasicUsername => Some(&mut self.current_request.auth.basic_username),
+            EditingField::AuthBasicPassword => Some(&mut self.current_request.auth.basic_password),
+            EditingField::AuthApiKeyName => Some(&mut self.current_request.auth.api_key_name),
+            EditingField::AuthApiKeyValue => Some(&mut self.current_request.auth.api_key_value),
+        }
+    }
+
+    /// Get current field text length
+    fn get_current_field_len(&self) -> usize {
+        let Some(field) = &self.editing_field else { return 0 };
+        match field {
+            EditingField::Url => self.current_request.url.len(),
+            EditingField::Body => self.current_request.body.len(),
+            EditingField::HeaderKey(i) => self.current_request.headers.get(*i).map(|h| h.key.len()).unwrap_or(0),
+            EditingField::HeaderValue(i) => self.current_request.headers.get(*i).map(|h| h.value.len()).unwrap_or(0),
+            EditingField::ParamKey(i) => self.current_request.query_params.get(*i).map(|p| p.key.len()).unwrap_or(0),
+            EditingField::ParamValue(i) => self.current_request.query_params.get(*i).map(|p| p.value.len()).unwrap_or(0),
+            EditingField::AuthBearerToken => self.current_request.auth.bearer_token.len(),
+            EditingField::AuthBasicUsername => self.current_request.auth.basic_username.len(),
+            EditingField::AuthBasicPassword => self.current_request.auth.basic_password.len(),
+            EditingField::AuthApiKeyName => self.current_request.auth.api_key_name.len(),
+            EditingField::AuthApiKeyValue => self.current_request.auth.api_key_value.len(),
+        }
+    }
+
     fn handle_backspace(&mut self) {
-        if let Some(field) = &self.editing_field {
-            match field {
-                EditingField::Url => {
-                    self.current_request.url.pop();
-                }
-                EditingField::Body => {
-                    self.current_request.body.pop();
-                }
-                EditingField::HeaderKey(i) => {
-                    if let Some(h) = self.current_request.headers.get_mut(*i) {
-                        h.key.pop();
-                    }
-                }
-                EditingField::HeaderValue(i) => {
-                    if let Some(h) = self.current_request.headers.get_mut(*i) {
-                        h.value.pop();
-                    }
-                }
-                EditingField::ParamKey(i) => {
-                    if let Some(p) = self.current_request.query_params.get_mut(*i) {
-                        p.key.pop();
-                    }
-                }
-                EditingField::ParamValue(i) => {
-                    if let Some(p) = self.current_request.query_params.get_mut(*i) {
-                        p.value.pop();
-                    }
-                }
-                EditingField::AuthBearerToken => {
-                    self.current_request.auth.bearer_token.pop();
-                }
-                EditingField::AuthBasicUsername => {
-                    self.current_request.auth.basic_username.pop();
-                }
-                EditingField::AuthBasicPassword => {
-                    self.current_request.auth.basic_password.pop();
-                }
-                EditingField::AuthApiKeyName => {
-                    self.current_request.auth.api_key_name.pop();
-                }
-                EditingField::AuthApiKeyValue => {
-                    self.current_request.auth.api_key_value.pop();
-                }
+        let cursor_pos = self.cursor_position;
+        if cursor_pos > 0 {
+            if let Some(text) = self.get_current_field_mut() {
+                // Remove character before cursor
+                let byte_pos = text.char_indices()
+                    .nth(cursor_pos - 1)
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+                let next_byte_pos = text.char_indices()
+                    .nth(cursor_pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(text.len());
+                text.replace_range(byte_pos..next_byte_pos, "");
+            }
+            self.cursor_position -= 1;
+        }
+    }
+
+    fn handle_delete(&mut self) {
+        let len = self.get_current_field_len();
+        let cursor_pos = self.cursor_position;
+        if cursor_pos < len {
+            if let Some(text) = self.get_current_field_mut() {
+                // Remove character at cursor
+                let byte_pos = text.char_indices()
+                    .nth(cursor_pos)
+                    .map(|(i, _)| i)
+                    .unwrap_or(text.len());
+                let next_byte_pos = text.char_indices()
+                    .nth(cursor_pos + 1)
+                    .map(|(i, _)| i)
+                    .unwrap_or(text.len());
+                text.replace_range(byte_pos..next_byte_pos, "");
             }
         }
     }
 
     fn handle_char_input(&mut self, c: char) {
-        if let Some(field) = &self.editing_field {
-            match field {
-                EditingField::Url => {
-                    self.current_request.url.push(c);
-                }
-                EditingField::Body => {
-                    self.current_request.body.push(c);
-                }
-                EditingField::HeaderKey(i) => {
-                    if let Some(h) = self.current_request.headers.get_mut(*i) {
-                        h.key.push(c);
-                    }
-                }
-                EditingField::HeaderValue(i) => {
-                    if let Some(h) = self.current_request.headers.get_mut(*i) {
-                        h.value.push(c);
-                    }
-                }
-                EditingField::ParamKey(i) => {
-                    if let Some(p) = self.current_request.query_params.get_mut(*i) {
-                        p.key.push(c);
-                    }
-                }
-                EditingField::ParamValue(i) => {
-                    if let Some(p) = self.current_request.query_params.get_mut(*i) {
-                        p.value.push(c);
-                    }
-                }
-                EditingField::AuthBearerToken => {
-                    self.current_request.auth.bearer_token.push(c);
-                }
-                EditingField::AuthBasicUsername => {
-                    self.current_request.auth.basic_username.push(c);
-                }
-                EditingField::AuthBasicPassword => {
-                    self.current_request.auth.basic_password.push(c);
-                }
-                EditingField::AuthApiKeyName => {
-                    self.current_request.auth.api_key_name.push(c);
-                }
-                EditingField::AuthApiKeyValue => {
-                    self.current_request.auth.api_key_value.push(c);
-                }
-            }
+        let cursor_pos = self.cursor_position;
+        if let Some(text) = self.get_current_field_mut() {
+            // Insert character at cursor position
+            let byte_pos = text.char_indices()
+                .nth(cursor_pos)
+                .map(|(i, _)| i)
+                .unwrap_or(text.len());
+            text.insert(byte_pos, c);
         }
+        self.cursor_position += 1;
+    }
+
+    fn cursor_left(&mut self) {
+        if self.cursor_position > 0 {
+            self.cursor_position -= 1;
+        }
+    }
+
+    fn cursor_right(&mut self) {
+        let len = self.get_current_field_len();
+        if self.cursor_position < len {
+            self.cursor_position += 1;
+        }
+    }
+
+    fn cursor_home(&mut self) {
+        self.cursor_position = 0;
+    }
+
+    fn cursor_end(&mut self) {
+        self.cursor_position = self.get_current_field_len();
+    }
+
+    /// Set editing field and position cursor at end
+    fn set_editing_field(&mut self, field: EditingField) {
+        self.editing_field = Some(field);
+        self.cursor_position = self.get_current_field_len();
     }
 
     fn navigate_up(&mut self) {
@@ -771,7 +806,7 @@ impl App {
             FocusedPanel::UrlBar => {
                 // Start editing URL
                 self.input_mode = InputMode::Editing;
-                self.editing_field = Some(EditingField::Url);
+                self.set_editing_field(EditingField::Url);
             }
             FocusedPanel::RequestEditor => {
                 self.enter_edit_mode();
@@ -784,7 +819,8 @@ impl App {
     fn enter_edit_mode(&mut self) {
         self.input_mode = InputMode::Editing;
         // Set editing field based on current tab
-        self.editing_field = Some(self.get_default_editing_field());
+        let field = self.get_default_editing_field();
+        self.set_editing_field(field);
     }
 
     /// Get the default editing field for the current tab
@@ -872,7 +908,7 @@ impl App {
             // Default
             _ => self.get_default_editing_field(),
         };
-        self.editing_field = Some(next);
+        self.set_editing_field(next);
     }
 
     fn load_selected_request(&mut self) {
@@ -901,7 +937,7 @@ impl App {
         self.response = None;
         self.focused_panel = FocusedPanel::UrlBar;
         self.input_mode = InputMode::Editing;
-        self.editing_field = Some(EditingField::Url);
+        self.set_editing_field(EditingField::Url);
     }
 
     fn reload_environments(&mut self) {
