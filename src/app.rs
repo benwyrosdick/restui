@@ -110,6 +110,31 @@ pub enum EditingField {
     AuthApiKeyValue,
 }
 
+/// Type of item being operated on
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ItemType {
+    Collection,
+    Folder,
+    Request,
+}
+
+/// Type of dialog currently being shown
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DialogType {
+    CreateCollection,
+    CreateFolder { parent_collection: usize, parent_folder_id: Option<String> },
+    CreateRequest { parent_collection: usize, parent_folder_id: Option<String> },
+    RenameItem { item_type: ItemType, item_id: String, collection_index: usize },
+    ConfirmDelete { item_type: ItemType, item_id: String, item_name: String, collection_index: usize },
+}
+
+/// Dialog state for input dialogs
+#[derive(Debug, Clone, Default)]
+pub struct DialogState {
+    pub dialog_type: Option<DialogType>,
+    pub input_buffer: String,
+}
+
 /// Application state
 pub struct App {
     pub config: Config,
@@ -132,6 +157,8 @@ pub struct App {
 
     // Current request being edited
     pub current_request: ApiRequest,
+    // Source of current request: (collection_index, request_id)
+    pub current_request_source: Option<(usize, String)>,
 
     // Response state
     pub response: Option<HttpResponse>,
@@ -146,6 +173,9 @@ pub struct App {
 
     // Help popup
     pub show_help: bool,
+
+    // Dialog state
+    pub dialog: DialogState,
 
     // Layout areas for mouse click detection
     pub layout_areas: LayoutAreas,
@@ -192,12 +222,14 @@ impl App {
             selected_history: 0,
             show_history: false,
             current_request: ApiRequest::default(),
+            current_request_source: None,
             response: None,
             is_loading: false,
             status_message: None,
             error_message: None,
             response_scroll: 0,
             show_help: false,
+            dialog: DialogState::default(),
             layout_areas: LayoutAreas::default(),
         })
     }
@@ -241,6 +273,11 @@ impl App {
         // Clear any previous error on new input
         self.error_message = None;
 
+        // Handle dialog input first if dialog is showing
+        if self.dialog.dialog_type.is_some() {
+            return self.handle_dialog_input(key);
+        }
+
         // If help is showing, any key closes it
         if self.show_help {
             match key.code {
@@ -255,13 +292,22 @@ impl App {
         }
 
         // Global shortcuts
-        match (key.code, key.modifiers) {
-            (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _)
-                if self.input_mode == InputMode::Normal =>
-            {
-                return Ok(true);
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.code {
+                KeyCode::Char('c') if self.input_mode == InputMode::Normal => {
+                    return Ok(true);
+                }
+                KeyCode::Char('s') => {
+                    self.save_current_request();
+                    return Ok(false);
+                }
+                _ => {}
             }
-            _ => {}
+        }
+
+        // Quit shortcut
+        if key.code == KeyCode::Char('q') && self.input_mode == InputMode::Normal {
+            return Ok(true);
         }
 
         // Mode-specific handling
@@ -285,15 +331,37 @@ impl App {
                 self.focused_panel = FocusedPanel::RequestList;
                 self.input_mode = InputMode::Normal;
                 self.editing_field = None;
-                
+
                 // Calculate which item was clicked (accounting for border)
-                let relative_y = y.saturating_sub(py + 1); // +1 for border
+                let relative_y = y.saturating_sub(py + 1) as usize; // +1 for border
                 if self.show_history {
                     let max = self.history.entries.len().saturating_sub(1);
-                    self.selected_history = (relative_y as usize).min(max);
+                    self.selected_history = relative_y.min(max);
                 } else {
-                    let max = self.get_visible_items_count().saturating_sub(1);
-                    self.selected_item = (relative_y as usize).min(max);
+                    // Map visual row to (collection_index, item_index)
+                    // Visual rows: collection headers + their items
+                    let mut visual_row = 0;
+                    for (col_idx, collection) in self.collections.iter().enumerate() {
+                        // Collection header row
+                        if visual_row == relative_y {
+                            // Clicked on collection header - select it and toggle expand
+                            self.selected_collection = col_idx;
+                            self.selected_item = 0;
+                            return;
+                        }
+                        visual_row += 1;
+
+                        if collection.expanded {
+                            let item_count = collection.flatten().len();
+                            if relative_y < visual_row + item_count {
+                                // Clicked on an item in this collection
+                                self.selected_collection = col_idx;
+                                self.selected_item = relative_y - visual_row;
+                                return;
+                            }
+                            visual_row += item_count;
+                        }
+                    }
                 }
                 return;
             }
@@ -417,6 +485,28 @@ impl App {
             // Help popup
             KeyCode::Char('?') => {
                 self.show_help = true;
+            }
+
+            // Save current request (W for write, like vim :w)
+            KeyCode::Char('W') => {
+                self.save_current_request();
+            }
+
+            // CRUD operations (only in RequestList panel)
+            KeyCode::Char('C') if self.focused_panel == FocusedPanel::RequestList => {
+                self.start_create_collection();
+            }
+            KeyCode::Char('F') if self.focused_panel == FocusedPanel::RequestList => {
+                self.start_create_folder();
+            }
+            KeyCode::Char('r') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+                self.start_create_request();
+            }
+            KeyCode::Char('R') if self.focused_panel == FocusedPanel::RequestList => {
+                self.start_rename_item();
+            }
+            KeyCode::Char('d') | KeyCode::Delete if self.focused_panel == FocusedPanel::RequestList => {
+                self.start_delete_item();
             }
 
             _ => {}
@@ -726,6 +816,7 @@ impl App {
             if let Some((_, item)) = flattened.get(self.selected_item) {
                 if let CollectionItem::Request(req) = item {
                     self.current_request = req.clone();
+                    self.current_request_source = Some((self.selected_collection, req.id.clone()));
                     self.response = None;
                 }
             }
@@ -741,10 +832,35 @@ impl App {
 
     fn new_request(&mut self) {
         self.current_request = ApiRequest::default();
+        self.current_request_source = None;
         self.response = None;
         self.focused_panel = FocusedPanel::UrlBar;
         self.input_mode = InputMode::Editing;
         self.editing_field = Some(EditingField::Url);
+    }
+
+    fn save_current_request(&mut self) {
+        if let Some((collection_idx, request_id)) = &self.current_request_source {
+            let request = self.current_request.clone();
+            if let Some(collection) = self.collections.get_mut(*collection_idx) {
+                if collection.update_request(&request_id, |r| {
+                    r.name = request.name.clone();
+                    r.method = request.method.clone();
+                    r.url = request.url.clone();
+                    r.headers = request.headers.clone();
+                    r.query_params = request.query_params.clone();
+                    r.body = request.body.clone();
+                    r.auth = request.auth.clone();
+                }) {
+                    self.status_message = Some("Request saved".to_string());
+                } else {
+                    self.error_message = Some("Failed to save request".to_string());
+                }
+            }
+        } else {
+            // No source - this is a new request, prompt to save to collection
+            self.error_message = Some("Use 'r' in Request List to create a new saved request".to_string());
+        }
     }
 
     async fn send_request(&mut self) -> Result<()> {
@@ -805,6 +921,228 @@ impl App {
         Ok(())
     }
 
+    /// Handle key input when a dialog is showing
+    fn handle_dialog_input(&mut self, key: KeyEvent) -> Result<bool> {
+        let Some(dialog_type) = self.dialog.dialog_type.clone() else {
+            return Ok(false);
+        };
+
+        match &dialog_type {
+            DialogType::ConfirmDelete { item_type, item_id, collection_index, .. } => {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        self.execute_delete(item_type.clone(), item_id.clone(), *collection_index);
+                        self.dialog = DialogState::default();
+                    }
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                        self.dialog = DialogState::default();
+                    }
+                    _ => {}
+                }
+            }
+            _ => {
+                // Input dialog handling
+                match key.code {
+                    KeyCode::Esc => {
+                        self.dialog = DialogState::default();
+                    }
+                    KeyCode::Enter => {
+                        if !self.dialog.input_buffer.trim().is_empty() {
+                            self.execute_dialog_action();
+                        }
+                    }
+                    KeyCode::Backspace => {
+                        self.dialog.input_buffer.pop();
+                    }
+                    KeyCode::Char(c) => {
+                        self.dialog.input_buffer.push(c);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    fn execute_dialog_action(&mut self) {
+        let name = self.dialog.input_buffer.trim().to_string();
+        let Some(dialog_type) = self.dialog.dialog_type.take() else {
+            return;
+        };
+
+        match dialog_type {
+            DialogType::CreateCollection => {
+                let collection = Collection::new(&name);
+                self.collections.push(collection);
+                self.status_message = Some(format!("Created collection: {}", name));
+            }
+            DialogType::CreateFolder { parent_collection, parent_folder_id } => {
+                if let Some(collection) = self.collections.get_mut(parent_collection) {
+                    collection.add_folder_to(&name, parent_folder_id.as_deref());
+                    self.status_message = Some(format!("Created folder: {}", name));
+                }
+            }
+            DialogType::CreateRequest { parent_collection, parent_folder_id } => {
+                if let Some(collection) = self.collections.get_mut(parent_collection) {
+                    let request = ApiRequest::new(&name);
+                    collection.add_request_to(request, parent_folder_id.as_deref());
+                    self.status_message = Some(format!("Created request: {}", name));
+                }
+            }
+            DialogType::RenameItem { item_type, item_id, collection_index } => {
+                match item_type {
+                    ItemType::Collection => {
+                        if let Some(collection) = self.collections.get_mut(collection_index) {
+                            collection.rename(&name);
+                            self.status_message = Some(format!("Renamed to: {}", name));
+                        }
+                    }
+                    ItemType::Folder | ItemType::Request => {
+                        if let Some(collection) = self.collections.get_mut(collection_index) {
+                            collection.rename_item(&item_id, &name);
+                            self.status_message = Some(format!("Renamed to: {}", name));
+                        }
+                    }
+                }
+            }
+            DialogType::ConfirmDelete { .. } => unreachable!(),
+        }
+
+        self.dialog = DialogState::default();
+    }
+
+    fn execute_delete(&mut self, item_type: ItemType, item_id: String, collection_index: usize) {
+        match item_type {
+            ItemType::Collection => {
+                if collection_index < self.collections.len() {
+                    let name = self.collections[collection_index].name.clone();
+                    let id = self.collections[collection_index].id.clone();
+                    self.collections.remove(collection_index);
+
+                    // Adjust selected_collection if needed
+                    if self.selected_collection >= self.collections.len() && !self.collections.is_empty() {
+                        self.selected_collection = self.collections.len() - 1;
+                    }
+                    self.selected_item = 0;
+                    self.status_message = Some(format!("Deleted collection: {}", name));
+
+                    // Delete the collection file from disk
+                    let path = self.config.collections_dir.join(format!("{}.json", id));
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+            ItemType::Folder | ItemType::Request => {
+                if let Some(collection) = self.collections.get_mut(collection_index) {
+                    collection.delete_item(&item_id);
+                    // Adjust selected_item if needed
+                    let max = self.get_visible_items_count().saturating_sub(1);
+                    if self.selected_item > max {
+                        self.selected_item = max;
+                    }
+                    self.status_message = Some("Item deleted".to_string());
+                }
+            }
+        }
+    }
+
+    fn start_create_collection(&mut self) {
+        self.dialog = DialogState {
+            dialog_type: Some(DialogType::CreateCollection),
+            input_buffer: String::new(),
+        };
+    }
+
+    fn start_create_folder(&mut self) {
+        if self.collections.is_empty() {
+            self.error_message = Some("Create a collection first".to_string());
+            return;
+        }
+        let parent_folder_id = self.get_selected_folder_id();
+        self.dialog = DialogState {
+            dialog_type: Some(DialogType::CreateFolder {
+                parent_collection: self.selected_collection,
+                parent_folder_id,
+            }),
+            input_buffer: String::new(),
+        };
+    }
+
+    fn start_create_request(&mut self) {
+        if self.collections.is_empty() {
+            self.error_message = Some("Create a collection first".to_string());
+            return;
+        }
+        let parent_folder_id = self.get_selected_folder_id();
+        self.dialog = DialogState {
+            dialog_type: Some(DialogType::CreateRequest {
+                parent_collection: self.selected_collection,
+                parent_folder_id,
+            }),
+            input_buffer: String::new(),
+        };
+    }
+
+    fn start_rename_item(&mut self) {
+        if let Some((item_type, item_id, current_name)) = self.get_selected_item_info() {
+            self.dialog = DialogState {
+                dialog_type: Some(DialogType::RenameItem {
+                    item_type,
+                    item_id,
+                    collection_index: self.selected_collection,
+                }),
+                input_buffer: current_name,
+            };
+        }
+    }
+
+    fn start_delete_item(&mut self) {
+        if let Some((item_type, item_id, item_name)) = self.get_selected_item_info() {
+            self.dialog = DialogState {
+                dialog_type: Some(DialogType::ConfirmDelete {
+                    item_type,
+                    item_id,
+                    item_name,
+                    collection_index: self.selected_collection,
+                }),
+                input_buffer: String::new(),
+            };
+        }
+    }
+
+    /// Get the folder ID if current selection is a folder, None otherwise
+    fn get_selected_folder_id(&self) -> Option<String> {
+        let collection = self.collections.get(self.selected_collection)?;
+        let flattened = collection.flatten();
+        let (_, item) = flattened.get(self.selected_item)?;
+        if item.is_folder() {
+            Some(item.id().to_string())
+        } else {
+            None
+        }
+    }
+
+    /// Get info about the currently selected item
+    fn get_selected_item_info(&self) -> Option<(ItemType, String, String)> {
+        if self.collections.is_empty() {
+            return None;
+        }
+
+        let collection = self.collections.get(self.selected_collection)?;
+        let flattened = collection.flatten();
+
+        if let Some((_, item)) = flattened.get(self.selected_item) {
+            let item_type = if item.is_folder() {
+                ItemType::Folder
+            } else {
+                ItemType::Request
+            };
+            Some((item_type, item.id().to_string(), item.name().to_string()))
+        } else {
+            // No items in collection - allow operations on the collection itself
+            Some((ItemType::Collection, collection.id.clone(), collection.name.clone()))
+        }
+    }
+
     /// Save current state to disk
     pub fn save(&self) -> Result<()> {
         // Save history
@@ -833,6 +1171,7 @@ impl App {
         help.push(("", "── Global ──"));
         help.push(("Tab", "Next panel"));
         help.push(("Shift+Tab", "Previous panel"));
+        help.push(("W / Ctrl+s", "Save request to collection"));
         help.push(("?", "Toggle help"));
         help.push(("q / Ctrl+c", "Quit"));
 
@@ -853,7 +1192,13 @@ impl App {
                         help.push(("k / ↑", "Move up"));
                         help.push(("Enter", "Load request"));
                         help.push(("H", "Toggle history view"));
-                        help.push(("n", "New request"));
+                        help.push(("n", "New request (in editor)"));
+                        help.push(("", "── Collection CRUD ──"));
+                        help.push(("C", "Create collection"));
+                        help.push(("F", "Create folder"));
+                        help.push(("r", "Create request"));
+                        help.push(("R", "Rename selected"));
+                        help.push(("d", "Delete selected"));
                     }
                     FocusedPanel::UrlBar => {
                         help.push(("", "── URL Bar ──"));

@@ -44,6 +44,13 @@ impl CollectionItem {
     pub fn is_folder(&self) -> bool {
         matches!(self, CollectionItem::Folder { .. })
     }
+
+    pub fn set_name(&mut self, new_name: impl Into<String>) {
+        match self {
+            CollectionItem::Request(req) => req.name = new_name.into(),
+            CollectionItem::Folder { name, .. } => *name = new_name.into(),
+        }
+    }
 }
 
 /// A collection of API requests
@@ -151,6 +158,113 @@ impl Collection {
                 }
                 CollectionItem::Folder { items, .. } => {
                     if Self::update_request_in_items(items, id, f) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Rename the collection
+    pub fn rename(&mut self, new_name: impl Into<String>) {
+        self.name = new_name.into();
+    }
+
+    /// Add a request to a specific folder (or root if folder_id is None)
+    pub fn add_request_to(&mut self, request: ApiRequest, folder_id: Option<&str>) -> bool {
+        match folder_id {
+            None => {
+                self.items.push(CollectionItem::Request(request));
+                true
+            }
+            Some(id) => Self::add_request_to_folder(&mut self.items, request, id),
+        }
+    }
+
+    fn add_request_to_folder(items: &mut [CollectionItem], request: ApiRequest, folder_id: &str) -> bool {
+        for item in items {
+            if let CollectionItem::Folder { id, items: folder_items, .. } = item {
+                if id == folder_id {
+                    folder_items.push(CollectionItem::Request(request));
+                    return true;
+                }
+                if Self::add_request_to_folder(folder_items, request.clone(), folder_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Add a folder to a specific parent folder (or root if parent_id is None)
+    pub fn add_folder_to(&mut self, name: impl Into<String>, parent_id: Option<&str>) -> bool {
+        let new_folder = CollectionItem::new_folder(name);
+        match parent_id {
+            None => {
+                self.items.push(new_folder);
+                true
+            }
+            Some(id) => Self::add_folder_to_parent(&mut self.items, new_folder, id),
+        }
+    }
+
+    fn add_folder_to_parent(items: &mut [CollectionItem], new_folder: CollectionItem, parent_id: &str) -> bool {
+        for item in items {
+            if let CollectionItem::Folder { id, items: folder_items, .. } = item {
+                if id == parent_id {
+                    folder_items.push(new_folder);
+                    return true;
+                }
+                if Self::add_folder_to_parent(folder_items, new_folder.clone(), parent_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Delete an item by ID (request or folder)
+    pub fn delete_item(&mut self, item_id: &str) -> bool {
+        Self::delete_item_recursive(&mut self.items, item_id)
+    }
+
+    fn delete_item_recursive(items: &mut Vec<CollectionItem>, item_id: &str) -> bool {
+        // First check if item is at this level
+        if let Some(pos) = items.iter().position(|item| item.id() == item_id) {
+            items.remove(pos);
+            return true;
+        }
+        // Otherwise search in subfolders
+        for item in items {
+            if let CollectionItem::Folder { items: folder_items, .. } = item {
+                if Self::delete_item_recursive(folder_items, item_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Rename an item by ID
+    pub fn rename_item(&mut self, item_id: &str, new_name: impl Into<String>) -> bool {
+        Self::rename_item_recursive(&mut self.items, item_id, new_name.into())
+    }
+
+    fn rename_item_recursive(items: &mut [CollectionItem], item_id: &str, new_name: String) -> bool {
+        for item in items {
+            match item {
+                CollectionItem::Request(req) if req.id == item_id => {
+                    req.name = new_name;
+                    return true;
+                }
+                CollectionItem::Folder { id, name, items: folder_items, .. } if id == item_id => {
+                    *name = new_name;
+                    return true;
+                }
+                CollectionItem::Folder { items: folder_items, .. } => {
+                    if Self::rename_item_recursive(folder_items, item_id, new_name.clone()) {
                         return true;
                     }
                 }

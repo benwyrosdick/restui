@@ -1,3 +1,4 @@
+mod dialog;
 mod help;
 mod layout;
 mod request_editor;
@@ -12,8 +13,10 @@ use ratatui::Frame;
 pub fn draw(frame: &mut Frame, app: &mut App) {
     layout::draw_layout(frame, app);
 
-    // Draw help popup on top if showing
-    if app.show_help {
+    // Draw dialog popup on top if showing (higher priority than help)
+    if app.dialog.dialog_type.is_some() {
+        dialog::draw_dialog(frame, app);
+    } else if app.show_help {
         help::draw_help(frame, app);
     }
 }
