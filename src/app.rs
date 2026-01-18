@@ -537,6 +537,13 @@ impl App {
                 self.copy_response();
             }
 
+            // Format JSON body
+            KeyCode::Char('f') if self.focused_panel == FocusedPanel::RequestEditor
+                && self.request_tab == RequestTab::Body =>
+            {
+                self.format_body_json();
+            }
+
             // CRUD operations (only in RequestList panel)
             KeyCode::Char('C') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_create_collection();
@@ -590,6 +597,12 @@ impl App {
             }
             KeyCode::Right => {
                 self.cursor_right();
+            }
+            KeyCode::Up => {
+                self.cursor_up();
+            }
+            KeyCode::Down => {
+                self.cursor_down();
             }
             KeyCode::Home => {
                 self.cursor_home();
@@ -711,6 +724,63 @@ impl App {
 
     fn cursor_end(&mut self) {
         self.cursor_position = self.get_current_field_len();
+    }
+
+    fn cursor_up(&mut self) {
+        // Only works for body field (multiline)
+        if !matches!(self.editing_field, Some(EditingField::Body)) {
+            return;
+        }
+
+        let body = &self.current_request.body;
+        let cursor_pos = self.cursor_position.min(body.len());
+
+        // Find current line start and position within line
+        let before_cursor = &body[..cursor_pos];
+        let current_line_start = before_cursor.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let col = cursor_pos - current_line_start;
+
+        // If we're on the first line, can't go up
+        if current_line_start == 0 {
+            return;
+        }
+
+        // Find previous line
+        let prev_line_end = current_line_start - 1; // position of '\n'
+        let prev_line_start = body[..prev_line_end].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let prev_line_len = prev_line_end - prev_line_start;
+
+        // Move to same column on previous line (or end of line if shorter)
+        self.cursor_position = prev_line_start + col.min(prev_line_len);
+    }
+
+    fn cursor_down(&mut self) {
+        // Only works for body field (multiline)
+        if !matches!(self.editing_field, Some(EditingField::Body)) {
+            return;
+        }
+
+        let body = &self.current_request.body;
+        let cursor_pos = self.cursor_position.min(body.len());
+
+        // Find current line start and position within line
+        let before_cursor = &body[..cursor_pos];
+        let current_line_start = before_cursor.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let col = cursor_pos - current_line_start;
+
+        // Find next line
+        let Some(next_line_start) = body[cursor_pos..].find('\n').map(|i| cursor_pos + i + 1) else {
+            return; // No next line
+        };
+
+        // Find end of next line
+        let next_line_end = body[next_line_start..].find('\n')
+            .map(|i| next_line_start + i)
+            .unwrap_or(body.len());
+        let next_line_len = next_line_end - next_line_start;
+
+        // Move to same column on next line (or end of line if shorter)
+        self.cursor_position = next_line_start + col.min(next_line_len);
     }
 
     /// Set editing field and position cursor at end
@@ -981,42 +1051,61 @@ impl App {
         }
     }
 
+    fn copy_to_clipboard(content: &str) -> Result<(), std::io::Error> {
+        use std::io::Write;
+
+        #[cfg(target_os = "macos")]
+        {
+            let mut child = std::process::Command::new("pbcopy")
+                .stdin(std::process::Stdio::piped())
+                .spawn()?;
+            if let Some(stdin) = child.stdin.as_mut() {
+                stdin.write_all(content.as_bytes())?;
+            }
+            child.wait()?;
+            return Ok(());
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Try wl-copy first (Wayland), then fall back to xclip (X11)
+            let wayland_result = std::process::Command::new("wl-copy")
+                .stdin(std::process::Stdio::piped())
+                .spawn()
+                .and_then(|mut child| {
+                    if let Some(stdin) = child.stdin.as_mut() {
+                        stdin.write_all(content.as_bytes())?;
+                    }
+                    child.wait()
+                });
+
+            if wayland_result.is_ok() {
+                return Ok(());
+            }
+
+            // Fall back to xclip for X11
+            let mut child = std::process::Command::new("xclip")
+                .args(["-selection", "clipboard"])
+                .stdin(std::process::Stdio::piped())
+                .spawn()?;
+            if let Some(stdin) = child.stdin.as_mut() {
+                stdin.write_all(content.as_bytes())?;
+            }
+            child.wait()?;
+            return Ok(());
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Clipboard not supported on this platform",
+        ))
+    }
+
     fn copy_as_curl(&mut self) {
         let curl_cmd = self.request_to_curl();
 
-        // Copy to clipboard using pbcopy (macOS) or xclip (Linux)
-        #[cfg(target_os = "macos")]
-        let result = std::process::Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                if let Some(stdin) = child.stdin.as_mut() {
-                    stdin.write_all(curl_cmd.as_bytes())?;
-                }
-                child.wait()
-            });
-
-        #[cfg(target_os = "linux")]
-        let result = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                if let Some(stdin) = child.stdin.as_mut() {
-                    stdin.write_all(curl_cmd.as_bytes())?;
-                }
-                child.wait()
-            });
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        let result: Result<std::process::ExitStatus, std::io::Error> = Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Clipboard not supported on this platform",
-        ));
-
-        match result {
+        match Self::copy_to_clipboard(&curl_cmd) {
             Ok(_) => self.status_message = Some("Copied curl command to clipboard".to_string()),
             Err(e) => self.error_message = Some(format!("Failed to copy: {}", e)),
         }
@@ -1028,43 +1117,33 @@ impl App {
             return;
         };
 
-        let body = &response.body;
-
-        // Copy to clipboard using pbcopy (macOS) or xclip (Linux)
-        #[cfg(target_os = "macos")]
-        let result = std::process::Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                if let Some(stdin) = child.stdin.as_mut() {
-                    stdin.write_all(body.as_bytes())?;
-                }
-                child.wait()
-            });
-
-        #[cfg(target_os = "linux")]
-        let result = std::process::Command::new("xclip")
-            .args(["-selection", "clipboard"])
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .and_then(|mut child| {
-                use std::io::Write;
-                if let Some(stdin) = child.stdin.as_mut() {
-                    stdin.write_all(body.as_bytes())?;
-                }
-                child.wait()
-            });
-
-        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-        let result: Result<std::process::ExitStatus, std::io::Error> = Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "Clipboard not supported on this platform",
-        ));
-
-        match result {
+        match Self::copy_to_clipboard(&response.body) {
             Ok(_) => self.status_message = Some("Copied response to clipboard".to_string()),
             Err(e) => self.error_message = Some(format!("Failed to copy: {}", e)),
+        }
+    }
+
+    fn format_body_json(&mut self) {
+        let body = &self.current_request.body;
+        if body.trim().is_empty() {
+            return;
+        }
+
+        match serde_json::from_str::<serde_json::Value>(body) {
+            Ok(parsed) => {
+                match serde_json::to_string_pretty(&parsed) {
+                    Ok(formatted) => {
+                        self.current_request.body = formatted;
+                        self.status_message = Some("Formatted JSON".to_string());
+                    }
+                    Err(e) => {
+                        self.error_message = Some(format!("Failed to format: {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Invalid JSON: {}", e));
+            }
         }
     }
 
@@ -1551,6 +1630,7 @@ impl App {
                             RequestTab::Body => {
                                 help.push(("", "── Body Tab ──"));
                                 help.push(("Enter", "Edit request body"));
+                                help.push(("f", "Format JSON"));
                             }
                             RequestTab::Auth => {
                                 help.push(("", "── Auth Tab ──"));

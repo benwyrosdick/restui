@@ -14,12 +14,27 @@ use super::layout::bordered_block;
 fn text_with_cursor<'a>(text: &str, cursor_pos: usize, is_editing: bool, placeholder: &str, base_style: Style) -> Vec<Span<'a>> {
     if is_editing {
         let pos = cursor_pos.min(text.len());
-        let (before, after) = text.split_at(pos);
-        vec![
-            Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
-            Span::styled("│", Style::default().fg(Color::White).bg(Color::DarkGray)),
-            Span::styled(after.to_string(), Style::default().bg(Color::DarkGray)),
-        ]
+        if text.is_empty() {
+            // Empty text, show block cursor as a space
+            vec![Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black))]
+        } else if pos >= text.len() {
+            // Cursor at end, show block cursor after text
+            vec![
+                Span::styled(text.to_string(), Style::default().bg(Color::DarkGray)),
+                Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black)),
+            ]
+        } else {
+            // Cursor in middle, highlight character under cursor
+            let (before, rest) = text.split_at(pos);
+            let mut chars = rest.chars();
+            let cursor_char = chars.next().unwrap_or(' ');
+            let after: String = chars.collect();
+            vec![
+                Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
+                Span::styled(cursor_char.to_string(), Style::default().bg(Color::White).fg(Color::Black)),
+                Span::styled(after, Style::default().bg(Color::DarkGray)),
+            ]
+        }
     } else if text.is_empty() {
         vec![Span::styled(placeholder.to_string(), Style::default().fg(Color::DarkGray))]
     } else {
@@ -146,15 +161,72 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
     let is_editing =
         app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Body);
 
-    let body_spans = text_with_cursor(
-        &app.current_request.body,
-        app.cursor_position,
-        is_editing,
-        "Enter request body...",
-        Style::default(),
-    );
+    let body = &app.current_request.body;
 
-    let para = Paragraph::new(Line::from(body_spans))
+    let lines: Vec<Line> = if body.is_empty() && !is_editing {
+        vec![Line::from(Span::styled(
+            "Enter request body...",
+            Style::default().fg(Color::DarkGray),
+        ))]
+    } else if is_editing {
+        // When editing, we need to show cursor at the right position across lines
+        let cursor_pos = app.cursor_position.min(body.len());
+        let mut result_lines = Vec::new();
+        let mut char_count = 0;
+        let mut cursor_rendered = false;
+
+        for line_text in body.split('\n') {
+            let line_start = char_count;
+            let line_end = char_count + line_text.len();
+
+            if !cursor_rendered && cursor_pos >= line_start && cursor_pos <= line_end {
+                // Cursor is on this line
+                let pos_in_line = cursor_pos - line_start;
+                cursor_rendered = true;
+
+                if pos_in_line >= line_text.len() {
+                    // Cursor at end of line, show block cursor after text
+                    result_lines.push(Line::from(vec![
+                        Span::styled(line_text.to_string(), Style::default().bg(Color::DarkGray)),
+                        Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black)),
+                    ]));
+                } else {
+                    // Cursor in middle, highlight character under cursor
+                    let (before, rest) = line_text.split_at(pos_in_line);
+                    let mut chars = rest.chars();
+                    let cursor_char = chars.next().unwrap_or(' ');
+                    let after: String = chars.collect();
+                    result_lines.push(Line::from(vec![
+                        Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
+                        Span::styled(cursor_char.to_string(), Style::default().bg(Color::White).fg(Color::Black)),
+                        Span::styled(after, Style::default().bg(Color::DarkGray)),
+                    ]));
+                }
+            } else {
+                result_lines.push(Line::from(Span::styled(
+                    line_text.to_string(),
+                    Style::default().bg(Color::DarkGray),
+                )));
+            }
+
+            // Account for the newline character (except for the last line)
+            char_count = line_end + 1;
+        }
+
+        // Handle empty body with cursor
+        if result_lines.is_empty() {
+            result_lines.push(Line::from(Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black))));
+        }
+
+        result_lines
+    } else {
+        // Not editing, just display lines normally
+        body.split('\n')
+            .map(|line| Line::from(Span::raw(line.to_string())))
+            .collect()
+    };
+
+    let para = Paragraph::new(lines)
         .block(
             Block::default()
                 .borders(Borders::ALL)
