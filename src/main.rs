@@ -80,8 +80,17 @@ async fn run_app(
                     }
                 }
                 Event::Mouse(mouse) => {
-                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
-                        app.handle_mouse_click(mouse.column, mouse.row);
+                    match mouse.kind {
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            app.handle_mouse_click(mouse.column, mouse.row);
+                        }
+                        MouseEventKind::ScrollUp => {
+                            app.handle_scroll(mouse.column, mouse.row, true);
+                        }
+                        MouseEventKind::ScrollDown => {
+                            app.handle_scroll(mouse.column, mouse.row, false);
+                        }
+                        _ => {}
                     }
                 }
                 _ => {}

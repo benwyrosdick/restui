@@ -410,6 +410,20 @@ impl App {
         }
     }
 
+    /// Handle mouse scroll wheel events
+    pub fn handle_scroll(&mut self, x: u16, y: u16, up: bool) {
+        // Check if scroll is within response pane
+        if let Some((px, py, pw, ph)) = self.layout_areas.response_view {
+            if x >= px && x < px + pw && y >= py && y < py + ph {
+                if up {
+                    self.response_scroll = self.response_scroll.saturating_sub(3);
+                } else {
+                    self.response_scroll = self.response_scroll.saturating_add(3);
+                }
+            }
+        }
+    }
+
     async fn handle_normal_mode(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             // Panel navigation
@@ -516,6 +530,11 @@ impl App {
             // Copy request as curl command
             KeyCode::Char('y') => {
                 self.copy_as_curl();
+            }
+
+            // Copy response body to clipboard (in response view)
+            KeyCode::Char('c') if self.focused_panel == FocusedPanel::ResponseView => {
+                self.copy_response();
             }
 
             // CRUD operations (only in RequestList panel)
@@ -999,6 +1018,52 @@ impl App {
 
         match result {
             Ok(_) => self.status_message = Some("Copied curl command to clipboard".to_string()),
+            Err(e) => self.error_message = Some(format!("Failed to copy: {}", e)),
+        }
+    }
+
+    fn copy_response(&mut self) {
+        let Some(response) = &self.response else {
+            self.error_message = Some("No response to copy".to_string());
+            return;
+        };
+
+        let body = &response.body;
+
+        // Copy to clipboard using pbcopy (macOS) or xclip (Linux)
+        #[cfg(target_os = "macos")]
+        let result = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    stdin.write_all(body.as_bytes())?;
+                }
+                child.wait()
+            });
+
+        #[cfg(target_os = "linux")]
+        let result = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    stdin.write_all(body.as_bytes())?;
+                }
+                child.wait()
+            });
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let result: Result<std::process::ExitStatus, std::io::Error> = Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Clipboard not supported on this platform",
+        ));
+
+        match result {
+            Ok(_) => self.status_message = Some("Copied response to clipboard".to_string()),
             Err(e) => self.error_message = Some(format!("Failed to copy: {}", e)),
         }
     }
@@ -1503,6 +1568,7 @@ impl App {
                         help.push(("", "── Response View ──"));
                         help.push(("j / ↓", "Scroll down"));
                         help.push(("k / ↑", "Scroll up"));
+                        help.push(("c", "Copy response to clipboard"));
                         help.push(("s", "Send request again"));
                     }
                 }
