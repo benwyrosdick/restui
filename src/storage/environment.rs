@@ -9,6 +9,9 @@ use std::path::Path;
 pub struct Environment {
     pub name: String,
     pub variables: HashMap<String, String>,
+    /// Optional color for the header bar (e.g., "red", "green", "blue", "yellow", "magenta", "cyan")
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 impl Environment {
@@ -16,6 +19,7 @@ impl Environment {
         Self {
             name: name.into(),
             variables: HashMap::new(),
+            color: None,
         }
     }
 
@@ -127,5 +131,10 @@ impl EnvironmentManager {
     /// Get the name of the active environment
     pub fn active_name(&self) -> &str {
         self.active().map(|e| e.name.as_str()).unwrap_or("none")
+    }
+
+    /// Get the color of the active environment (if set)
+    pub fn active_color(&self) -> Option<&str> {
+        self.active().and_then(|e| e.color.as_deref())
     }
 }

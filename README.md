@@ -116,6 +116,7 @@ Create `~/.config/restui/environments.json`:
   "environments": [
     {
       "name": "development",
+      "color": "green",
       "variables": {
         "base_url": "http://localhost:3000",
         "api_token": "dev-token-123"
@@ -123,6 +124,7 @@ Create `~/.config/restui/environments.json`:
     },
     {
       "name": "production",
+      "color": "red",
       "variables": {
         "base_url": "https://api.example.com",
         "api_token": "prod-token-456"
@@ -135,6 +137,15 @@ Create `~/.config/restui/environments.json`:
 Use `{{variable_name}}` syntax in URLs, headers, or body. Variables are interpolated from the active environment before sending requests.
 
 Press `e` to cycle through environments, or `E` to reload from file after making changes.
+
+### Environment Colors
+
+Set the `color` field to change the header bar color for each environment. This helps visually distinguish between environments (e.g., red for production).
+
+Supported colors:
+- Named: `red`, `green`, `blue`, `yellow`, `magenta`, `cyan`, `white`, `gray`, `darkgray`
+- Light variants: `lightred`, `lightgreen`, `lightblue`, `lightyellow`, `lightmagenta`, `lightcyan`
+- Hex: `#FF5733` (RGB hex format)
 
 ## License
 
