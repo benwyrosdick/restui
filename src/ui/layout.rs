@@ -14,76 +14,6 @@ fn rect_to_tuple(r: Rect) -> (u16, u16, u16, u16) {
     (r.x, r.y, r.width, r.height)
 }
 
-/// Parse a color string into a ratatui Color, returning (background, foreground) for good contrast
-fn parse_color_with_contrast(color_str: &str) -> (Color, Color) {
-    let bg = match color_str.to_lowercase().as_str() {
-        "red" => Color::Red,
-        "green" => Color::Green,
-        "blue" => Color::Blue,
-        "yellow" => Color::Yellow,
-        "magenta" | "purple" => Color::Magenta,
-        "cyan" => Color::Cyan,
-        "white" => Color::White,
-        "black" => Color::Black,
-        "gray" | "grey" => Color::Gray,
-        "darkgray" | "darkgrey" => Color::DarkGray,
-        "lightred" => Color::LightRed,
-        "lightgreen" => Color::LightGreen,
-        "lightblue" => Color::LightBlue,
-        "lightyellow" => Color::LightYellow,
-        "lightmagenta" => Color::LightMagenta,
-        "lightcyan" => Color::LightCyan,
-        s if s.starts_with('#') && s.len() == 7 => {
-            // Parse hex color like "#FF5733"
-            let r = u8::from_str_radix(&s[1..3], 16).unwrap_or(0);
-            let g = u8::from_str_radix(&s[3..5], 16).unwrap_or(0);
-            let b = u8::from_str_radix(&s[5..7], 16).unwrap_or(0);
-            Color::Rgb(r, g, b)
-        }
-        _ => Color::Blue, // Default fallback
-    };
-
-    // Determine foreground color based on background luminance
-    let fg = get_contrast_color(bg);
-    (bg, fg)
-}
-
-/// Get a contrasting foreground color (black or white) based on background luminance
-fn get_contrast_color(bg: Color) -> Color {
-    let (r, g, b) = match bg {
-        Color::Rgb(r, g, b) => (r, g, b),
-        // Approximate RGB values for named colors
-        Color::Black => (0, 0, 0),
-        Color::Red => (205, 0, 0),
-        Color::Green => (0, 205, 0),
-        Color::Yellow => (205, 205, 0),
-        Color::Blue => (0, 0, 238),
-        Color::Magenta => (205, 0, 205),
-        Color::Cyan => (0, 205, 205),
-        Color::Gray => (128, 128, 128),
-        Color::DarkGray => (85, 85, 85),
-        Color::LightRed => (255, 85, 85),
-        Color::LightGreen => (85, 255, 85),
-        Color::LightYellow => (255, 255, 85),
-        Color::LightBlue => (85, 85, 255),
-        Color::LightMagenta => (255, 85, 255),
-        Color::LightCyan => (85, 255, 255),
-        Color::White => (255, 255, 255),
-        _ => (128, 128, 128), // Default to mid-gray for unknown
-    };
-
-    // Calculate relative luminance using sRGB formula
-    // https://www.w3.org/TR/WCAG20/#relativeluminancedef
-    let luminance = 0.299 * (r as f64) + 0.587 * (g as f64) + 0.114 * (b as f64);
-
-    // Use black text for light backgrounds, white text for dark backgrounds
-    if luminance > 150.0 {
-        Color::Black
-    } else {
-        Color::White
-    }
-}
-
 /// Main application layout
 pub fn draw_layout(frame: &mut Frame, app: &mut App) {
     let size = frame.area();
@@ -157,17 +87,19 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(format!("v{}", version), Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
     ]);
     let left_header = Paragraph::new(left_content)
-        .style(Style::default().bg(Color::DarkGray));
+        .style(Style::default());
     frame.render_widget(left_header, header_chunks[0]);
 
-    // Right half: Environment-colored background with environment name
-    let (bg_color, fg_color) = app.environments.active_color()
-        .map(parse_color_with_contrast)
-        .unwrap_or((Color::Blue, Color::White));
+    // Right half: Dark gray background with environment name in accent color
+    let accent = app.accent_color();
 
-    let right_title = format!("[Env: {}] ", env_name);
-    let right_header = Paragraph::new(right_title)
-        .style(Style::default().bg(bg_color).fg(fg_color).add_modifier(Modifier::BOLD))
+    let right_content = Line::from(vec![
+        Span::styled("Env: ", Style::default().fg(Color::White)),
+        Span::styled(env_name, Style::default().fg(accent).add_modifier(Modifier::BOLD)),
+        Span::raw(" "),
+    ]);
+    let right_header = Paragraph::new(right_content)
+        .style(Style::default())
         .alignment(ratatui::layout::Alignment::Right);
     frame.render_widget(right_header, header_chunks[1]);
 }
@@ -193,7 +125,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     } else if let Some(status) = &app.status_message {
         Span::styled(
             format!(" {} ", status),
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(app.accent_color()),
         )
     } else {
         Span::raw(" [S]end [N]ew [E]nv [H]istory [?]help | Tab:switch | q:quit ")
@@ -201,15 +133,15 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let footer_content = Line::from(vec![mode_indicator, message]);
     let footer = Paragraph::new(footer_content)
-        .style(Style::default().bg(Color::DarkGray));
+        .style(Style::default());
 
     frame.render_widget(footer, area);
 }
 
 /// Helper to create a bordered block with focus indication
-pub fn bordered_block(title: &str, focused: bool) -> Block<'_> {
+pub fn bordered_block(title: &str, focused: bool, accent: Color) -> Block<'_> {
     let border_style = if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(accent)
     } else {
         Style::default().fg(Color::DarkGray)
     };
@@ -219,7 +151,7 @@ pub fn bordered_block(title: &str, focused: bool) -> Block<'_> {
         .border_style(border_style)
         .title(format!(" {} ", title))
         .title_style(if focused {
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+            Style::default().fg(accent).add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         })

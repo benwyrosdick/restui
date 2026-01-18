@@ -12,24 +12,25 @@ use super::layout::bordered_block;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestList;
+    let accent = app.accent_color();
     let title = if app.show_history {
         "History"
     } else {
         "Collections"
     };
 
-    let block = bordered_block(title, focused);
+    let block = bordered_block(title, focused, accent);
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
     if app.show_history {
-        draw_history(frame, app, inner_area);
+        draw_history(frame, app, inner_area, accent);
     } else {
-        draw_collections(frame, app, inner_area);
+        draw_collections(frame, app, inner_area, accent);
     }
 }
 
-fn draw_collections(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let mut items: Vec<ListItem> = Vec::new();
 
     for (col_idx, collection) in app.collections.iter().enumerate() {
@@ -68,14 +69,14 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect) {
                     }
                     CollectionItem::Folder { name, expanded, .. } => {
                         let icon = if *expanded { "▼ " } else { "▶ " };
-                        (icon.to_string(), name.clone(), Style::default().fg(Color::Cyan))
+                        (icon.to_string(), name.clone(), Style::default().fg(accent))
                     }
                 };
 
                 let name_style = if is_selected {
                     Style::default()
                         .fg(Color::Black)
-                        .bg(Color::Cyan)
+                        .bg(accent)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::White)
@@ -100,7 +101,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn draw_history(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_history(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let items: Vec<ListItem> = app
         .history
         .entries
@@ -130,7 +131,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect) {
 
             let style = if is_selected {
                 Style::default()
-                    .bg(Color::Cyan)
+                    .bg(accent)
                     .fg(Color::Black)
                     .add_modifier(Modifier::BOLD)
             } else {

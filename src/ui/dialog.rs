@@ -13,9 +13,11 @@ pub fn draw_dialog(frame: &mut Frame, app: &App) {
         return;
     };
 
+    let accent = app.accent_color();
+
     match dialog_type {
         DialogType::ConfirmDelete { item_type, item_name, .. } => {
-            draw_confirm_dialog(frame, item_type, item_name);
+            draw_confirm_dialog(frame, item_type, item_name, accent);
         }
         _ => {
             draw_input_dialog(frame, app, dialog_type);
@@ -24,6 +26,7 @@ pub fn draw_dialog(frame: &mut Frame, app: &App) {
 }
 
 fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
+    let accent = app.accent_color();
     let title = match dialog_type {
         DialogType::CreateCollection => "New Collection",
         DialogType::CreateFolder { .. } => "New Folder",
@@ -47,7 +50,7 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
         .title(format!(" {} ", title))
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().fg(accent))
         .style(Style::default().bg(Color::Black));
 
     let inner = block.inner(area);
@@ -83,9 +86,9 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
 
     // Footer hints
     let footer = Paragraph::new(Line::from(vec![
-        Span::styled("Enter", Style::default().fg(Color::Cyan)),
+        Span::styled("Enter", Style::default().fg(accent)),
         Span::raw(": confirm  "),
-        Span::styled("Esc", Style::default().fg(Color::Cyan)),
+        Span::styled("Esc", Style::default().fg(accent)),
         Span::raw(": cancel"),
     ]))
     .alignment(Alignment::Center);
@@ -99,7 +102,7 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
     frame.render_widget(footer, footer_area);
 }
 
-fn draw_confirm_dialog(frame: &mut Frame, item_type: &ItemType, item_name: &str) {
+fn draw_confirm_dialog(frame: &mut Frame, item_type: &ItemType, item_name: &str, accent: Color) {
     let type_str = match item_type {
         ItemType::Collection => "collection",
         ItemType::Folder => "folder (and all contents)",
@@ -158,7 +161,7 @@ fn draw_confirm_dialog(frame: &mut Frame, item_type: &ItemType, item_name: &str)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw(": delete  "),
-        Span::styled("n/Esc", Style::default().fg(Color::Cyan)),
+        Span::styled("n/Esc", Style::default().fg(accent)),
         Span::raw(": cancel"),
     ]))
     .alignment(Alignment::Center);

@@ -44,7 +44,8 @@ fn text_with_cursor<'a>(text: &str, cursor_pos: usize, is_editing: bool, placeho
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestEditor;
-    let block = bordered_block("Request", focused);
+    let accent = app.accent_color();
+    let block = bordered_block("Request", focused, accent);
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
@@ -57,24 +58,24 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ])
         .split(inner_area);
 
-    draw_tabs(frame, app, chunks[0]);
+    draw_tabs(frame, app, chunks[0], accent);
 
     match app.request_tab {
-        RequestTab::Headers => draw_headers(frame, app, chunks[1]),
+        RequestTab::Headers => draw_headers(frame, app, chunks[1], accent),
         RequestTab::Body => draw_body(frame, app, chunks[1]),
-        RequestTab::Auth => draw_auth(frame, app, chunks[1]),
-        RequestTab::Params => draw_params(frame, app, chunks[1]),
+        RequestTab::Auth => draw_auth(frame, app, chunks[1], accent),
+        RequestTab::Params => draw_params(frame, app, chunks[1], accent),
     }
 }
 
-fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
+fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect, accent: Color) {
     let tabs_list = RequestTab::all();
     let titles: Vec<Line> = tabs_list
         .iter()
         .map(|t| {
             let style = if *t == app.request_tab {
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(accent)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::DarkGray)
@@ -103,7 +104,7 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(tabs, area);
 }
 
-fn draw_headers(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let mut lines: Vec<Line> = Vec::new();
 
     for (i, header) in app.current_request.headers.iter().enumerate() {
@@ -130,7 +131,7 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect) {
             app.cursor_position,
             is_editing_key,
             "key",
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(accent),
         ));
 
         spans.push(Span::raw(": "));
@@ -241,7 +242,7 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(para, area);
 }
 
-fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let auth = &app.current_request.auth;
 
     let mut lines: Vec<Line> = Vec::new();
@@ -251,7 +252,7 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled("Type: ", Style::default().fg(Color::DarkGray)),
         Span::styled(
             auth.auth_type.as_str(),
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ),
         Span::styled(" (press 'a' to cycle)", Style::default().fg(Color::DarkGray)),
     ]));
@@ -362,7 +363,7 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
                     } else {
                         "Header"
                     },
-                    Style::default().fg(Color::Cyan),
+                    Style::default().fg(accent),
                 ),
             ]));
         }
@@ -372,7 +373,7 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(para, area);
 }
 
-fn draw_params(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_params(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let mut lines: Vec<Line> = Vec::new();
 
     for (i, param) in app.current_request.query_params.iter().enumerate() {
@@ -399,7 +400,7 @@ fn draw_params(frame: &mut Frame, app: &App, area: Rect) {
             app.cursor_position,
             is_editing_key,
             "key",
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(accent),
         ));
 
         spans.push(Span::raw("="));

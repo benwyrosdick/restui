@@ -55,16 +55,17 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let url_line = Line::from(spans);
 
     // Border style based on focus
+    let accent = app.accent_color();
     let border_style = if is_editing {
         Style::default().fg(Color::Green)
     } else if focused {
-        Style::default().fg(Color::Cyan)
+        Style::default().fg(accent)
     } else {
         Style::default().fg(Color::DarkGray)
     };
 
     let title_style = if focused {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default().fg(accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default()
     };

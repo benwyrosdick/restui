@@ -10,6 +10,7 @@ use ratatui::{
 /// Draw the help popup centered on screen
 pub fn draw_help(frame: &mut Frame, app: &App) {
     let help_content = app.get_help_content();
+    let accent = app.accent_color();
 
     // Calculate popup size
     let max_key_len = help_content
@@ -47,7 +48,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
                     Span::styled(
                         format!("{:>12}", key),
                         Style::default()
-                            .fg(Color::Cyan)
+                            .fg(accent)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  "),
@@ -65,7 +66,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
         .title(" Help ")
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan))
+        .border_style(Style::default().fg(accent))
         .style(Style::default().bg(Color::Black));
 
     let help_text = Paragraph::new(lines)

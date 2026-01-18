@@ -6,6 +6,7 @@ use crate::storage::{
 };
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::style::Color;
 use std::path::PathBuf;
 
 /// Which panel is currently focused
@@ -421,6 +422,42 @@ impl App {
                     self.response_scroll = self.response_scroll.saturating_add(3);
                 }
             }
+        }
+    }
+
+    /// Get the accent color based on the active environment (defaults to Cyan)
+    pub fn accent_color(&self) -> Color {
+        self.environments.active_color()
+            .map(|s| Self::parse_color(s))
+            .unwrap_or(Color::Cyan)
+    }
+
+    /// Parse a color string into a ratatui Color
+    fn parse_color(color_str: &str) -> Color {
+        match color_str.to_lowercase().as_str() {
+            "red" => Color::Red,
+            "green" => Color::Green,
+            "blue" => Color::Blue,
+            "yellow" => Color::Yellow,
+            "magenta" | "purple" => Color::Magenta,
+            "cyan" => Color::Cyan,
+            "white" => Color::White,
+            "black" => Color::Black,
+            "gray" | "grey" => Color::Gray,
+            "darkgray" | "darkgrey" => Color::DarkGray,
+            "lightred" => Color::LightRed,
+            "lightgreen" => Color::LightGreen,
+            "lightblue" => Color::LightBlue,
+            "lightyellow" => Color::LightYellow,
+            "lightmagenta" => Color::LightMagenta,
+            "lightcyan" => Color::LightCyan,
+            s if s.starts_with('#') && s.len() == 7 => {
+                let r = u8::from_str_radix(&s[1..3], 16).unwrap_or(0);
+                let g = u8::from_str_radix(&s[3..5], 16).unwrap_or(0);
+                let b = u8::from_str_radix(&s[5..7], 16).unwrap_or(0);
+                Color::Rgb(r, g, b)
+            }
+            _ => Color::Cyan,
         }
     }
 

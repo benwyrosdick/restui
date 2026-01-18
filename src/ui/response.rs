@@ -11,7 +11,8 @@ use super::layout::bordered_block;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::ResponseView;
-    let block = bordered_block("Response", focused);
+    let accent = app.accent_color();
+    let block = bordered_block("Response", focused, accent);
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
@@ -29,10 +30,10 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
                 .split(inner_area);
 
             // Status line
-            draw_status(frame, response, chunks[0]);
+            draw_status(frame, response, chunks[0], accent);
 
             // Response body with syntax highlighting
-            draw_body(frame, app, response, chunks[1]);
+            draw_body(frame, app, response, chunks[1], accent);
         }
         None => {
             let placeholder = Paragraph::new("No response yet. Send a request with 's'.")
@@ -48,7 +49,7 @@ fn draw_loading(frame: &mut Frame, area: Rect) {
     frame.render_widget(loading, area);
 }
 
-fn draw_status(frame: &mut Frame, response: &crate::http::HttpResponse, area: Rect) {
+fn draw_status(frame: &mut Frame, response: &crate::http::HttpResponse, area: Rect, accent: Color) {
     let status_color = if response.is_success() {
         Color::Green
     } else if response.status >= 400 {
@@ -68,7 +69,7 @@ fn draw_status(frame: &mut Frame, response: &crate::http::HttpResponse, area: Re
         Span::raw("  "),
         Span::styled(
             format!("{}ms", response.duration_ms),
-            Style::default().fg(Color::Cyan),
+            Style::default().fg(accent),
         ),
         Span::raw("  "),
         Span::styled(
@@ -81,7 +82,7 @@ fn draw_status(frame: &mut Frame, response: &crate::http::HttpResponse, area: Re
     frame.render_widget(para, area);
 }
 
-fn draw_body(frame: &mut Frame, app: &App, response: &crate::http::HttpResponse, area: Rect) {
+fn draw_body(frame: &mut Frame, app: &App, response: &crate::http::HttpResponse, area: Rect, _accent: Color) {
     let pretty_body = response.pretty_body();
     let lines: Vec<Line> = pretty_body
         .lines()
