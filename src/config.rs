@@ -16,8 +16,10 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Result<Self> {
-        let base_dir = dirs::config_dir()
+        // Use ~/.config on all platforms for consistency
+        let base_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
+            .join(".config")
             .join("restui");
 
         let collections_dir = base_dir.join("collections");

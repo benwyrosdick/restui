@@ -445,12 +445,17 @@ impl App {
             }
 
             // Switch environment
-            KeyCode::Char('e') | KeyCode::Char('E') => {
+            KeyCode::Char('e') => {
                 self.environments.next();
                 self.status_message = Some(format!(
                     "Switched to environment: {}",
                     self.environments.active_name()
                 ));
+            }
+
+            // Reload environments from disk
+            KeyCode::Char('E') => {
+                self.reload_environments();
             }
 
             // Edit current field
@@ -504,6 +509,11 @@ impl App {
             // Save current request (W for write, like vim :w)
             KeyCode::Char('W') => {
                 self.save_current_request();
+            }
+
+            // Copy request as curl command
+            KeyCode::Char('y') => {
+                self.copy_as_curl();
             }
 
             // CRUD operations (only in RequestList panel)
@@ -894,6 +904,162 @@ impl App {
         self.editing_field = Some(EditingField::Url);
     }
 
+    fn reload_environments(&mut self) {
+        let path = &self.config.environments_file;
+        let exists = path.exists();
+        match EnvironmentManager::load(path) {
+            Ok(env_manager) => {
+                let count = env_manager.environments.len();
+                let names: Vec<_> = env_manager.environments.iter().map(|e| e.name.clone()).collect();
+                self.environments = env_manager;
+                self.status_message = Some(format!(
+                    "Loaded {} [{}] from {:?} (exists={})",
+                    count,
+                    names.join(", "),
+                    path,
+                    exists
+                ));
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Failed: {:?} (exists={}): {}", path, exists, e));
+            }
+        }
+    }
+
+    fn copy_as_curl(&mut self) {
+        let curl_cmd = self.request_to_curl();
+
+        // Copy to clipboard using pbcopy (macOS) or xclip (Linux)
+        #[cfg(target_os = "macos")]
+        let result = std::process::Command::new("pbcopy")
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    stdin.write_all(curl_cmd.as_bytes())?;
+                }
+                child.wait()
+            });
+
+        #[cfg(target_os = "linux")]
+        let result = std::process::Command::new("xclip")
+            .args(["-selection", "clipboard"])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .and_then(|mut child| {
+                use std::io::Write;
+                if let Some(stdin) = child.stdin.as_mut() {
+                    stdin.write_all(curl_cmd.as_bytes())?;
+                }
+                child.wait()
+            });
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        let result: Result<std::process::ExitStatus, std::io::Error> = Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Clipboard not supported on this platform",
+        ));
+
+        match result {
+            Ok(_) => self.status_message = Some("Copied curl command to clipboard".to_string()),
+            Err(e) => self.error_message = Some(format!("Failed to copy: {}", e)),
+        }
+    }
+
+    fn request_to_curl(&self) -> String {
+        let mut parts = vec!["curl".to_string()];
+
+        // Method (if not GET)
+        let method = self.current_request.method.as_str();
+        if method != "GET" {
+            parts.push(format!("-X {}", method));
+        }
+
+        // URL with interpolation
+        let url = self.environments.interpolate(&self.current_request.url);
+
+        // Headers
+        for header in &self.current_request.headers {
+            if header.enabled && !header.key.is_empty() {
+                let key = self.environments.interpolate(&header.key);
+                let value = self.environments.interpolate(&header.value);
+                parts.push(format!("-H '{}: {}'", key, value));
+            }
+        }
+
+        // Auth
+        match self.current_request.auth.auth_type {
+            crate::storage::AuthType::Bearer => {
+                let token = self.environments.interpolate(&self.current_request.auth.bearer_token);
+                parts.push(format!("-H 'Authorization: Bearer {}'", token));
+            }
+            crate::storage::AuthType::Basic => {
+                let user = self.environments.interpolate(&self.current_request.auth.basic_username);
+                let pass = self.environments.interpolate(&self.current_request.auth.basic_password);
+                parts.push(format!("-u '{}:{}'", user, pass));
+            }
+            crate::storage::AuthType::ApiKey => {
+                let name = self.environments.interpolate(&self.current_request.auth.api_key_name);
+                let value = self.environments.interpolate(&self.current_request.auth.api_key_value);
+                if self.current_request.auth.api_key_location == "header" {
+                    parts.push(format!("-H '{}: {}'", name, value));
+                }
+                // Query params handled below with URL
+            }
+            crate::storage::AuthType::None => {}
+        }
+
+        // Body
+        if !self.current_request.body.is_empty() {
+            let body = self.environments.interpolate(&self.current_request.body);
+            // Escape single quotes in body
+            let escaped_body = body.replace("'", "'\\''");
+            parts.push(format!("-d '{}'", escaped_body));
+        }
+
+        // Query params - build URL with params
+        let mut full_url = url;
+        let enabled_params: Vec<_> = self.current_request.query_params
+            .iter()
+            .filter(|p| p.enabled && !p.key.is_empty())
+            .collect();
+
+        if !enabled_params.is_empty() {
+            let query_string: Vec<String> = enabled_params
+                .iter()
+                .map(|p| {
+                    let key = self.environments.interpolate(&p.key);
+                    let value = self.environments.interpolate(&p.value);
+                    format!("{}={}", key, value)
+                })
+                .collect();
+
+            if full_url.contains('?') {
+                full_url = format!("{}&{}", full_url, query_string.join("&"));
+            } else {
+                full_url = format!("{}?{}", full_url, query_string.join("&"));
+            }
+        }
+
+        // Add API key to URL if location is query
+        if self.current_request.auth.auth_type == crate::storage::AuthType::ApiKey
+            && self.current_request.auth.api_key_location == "query"
+        {
+            let name = self.environments.interpolate(&self.current_request.auth.api_key_name);
+            let value = self.environments.interpolate(&self.current_request.auth.api_key_value);
+            if full_url.contains('?') {
+                full_url = format!("{}&{}={}", full_url, name, value);
+            } else {
+                full_url = format!("{}?{}={}", full_url, name, value);
+            }
+        }
+
+        parts.push(format!("'{}'", full_url));
+
+        parts.join(" ")
+    }
+
     fn save_current_request(&mut self) {
         if let Some((collection_idx, request_id)) = &self.current_request_source {
             let request = self.current_request.clone();
@@ -1228,6 +1394,7 @@ impl App {
         help.push(("Tab", "Next panel"));
         help.push(("Shift+Tab", "Previous panel"));
         help.push(("W / Ctrl+s", "Save request to collection"));
+        help.push(("y", "Copy as curl to clipboard"));
         help.push(("?", "Toggle help"));
         help.push(("q / Ctrl+c", "Quit"));
 
@@ -1261,7 +1428,7 @@ impl App {
                         help.push(("Enter / i", "Edit URL"));
                         help.push(("m", "Cycle HTTP method (GET/POST/...)"));
                         help.push(("s", "Send request"));
-                        help.push(("e", "Switch environment"));
+                        help.push(("e / E", "Switch / Reload environments"));
                         help.push(("n", "New request"));
                     }
                     FocusedPanel::RequestEditor => {
@@ -1271,7 +1438,7 @@ impl App {
                         help.push(("Enter", "Start editing current tab"));
                         help.push(("m", "Cycle HTTP method (GET/POST/...)"));
                         help.push(("s", "Send request"));
-                        help.push(("e", "Switch environment"));
+                        help.push(("e / E", "Switch / Reload environments"));
                         help.push(("n", "New request"));
 
                         // Tab-specific hints
