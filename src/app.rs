@@ -487,6 +487,20 @@ impl App {
                 self.show_help = true;
             }
 
+            // Panel switching by number
+            KeyCode::Char('1') => {
+                self.focused_panel = FocusedPanel::RequestList;
+            }
+            KeyCode::Char('2') => {
+                self.focused_panel = FocusedPanel::UrlBar;
+            }
+            KeyCode::Char('3') => {
+                self.focused_panel = FocusedPanel::RequestEditor;
+            }
+            KeyCode::Char('4') => {
+                self.focused_panel = FocusedPanel::ResponseView;
+            }
+
             // Save current request (W for write, like vim :w)
             KeyCode::Char('W') => {
                 self.save_current_request();
@@ -647,7 +661,7 @@ impl App {
                 if self.show_history {
                     self.selected_history = self.selected_history.saturating_sub(1);
                 } else {
-                    self.selected_item = self.selected_item.saturating_sub(1);
+                    self.navigate_collection_up();
                 }
             }
             FocusedPanel::ResponseView => {
@@ -664,8 +678,7 @@ impl App {
                     let max = self.history.entries.len().saturating_sub(1);
                     self.selected_history = (self.selected_history + 1).min(max);
                 } else {
-                    let max = self.get_visible_items_count().saturating_sub(1);
-                    self.selected_item = (self.selected_item + 1).min(max);
+                    self.navigate_collection_down();
                 }
             }
             FocusedPanel::ResponseView => {
@@ -673,6 +686,48 @@ impl App {
             }
             _ => {}
         }
+    }
+
+    fn navigate_collection_up(&mut self) {
+        if self.collections.is_empty() {
+            return;
+        }
+
+        if self.selected_item > 0 {
+            // Move up within current collection
+            self.selected_item -= 1;
+        } else if self.selected_collection > 0 {
+            // Move to previous collection
+            self.selected_collection -= 1;
+            // Select last item in previous collection (or 0 if collapsed/empty)
+            if let Some(col) = self.collections.get(self.selected_collection) {
+                if col.expanded {
+                    let count = col.flatten().len();
+                    self.selected_item = count.saturating_sub(1);
+                } else {
+                    self.selected_item = 0;
+                }
+            }
+        }
+        // else: already at top of first collection, do nothing
+    }
+
+    fn navigate_collection_down(&mut self) {
+        if self.collections.is_empty() {
+            return;
+        }
+
+        let current_max = self.get_visible_items_count().saturating_sub(1);
+
+        if self.selected_item < current_max {
+            // Move down within current collection
+            self.selected_item += 1;
+        } else if self.selected_collection < self.collections.len() - 1 {
+            // Move to next collection
+            self.selected_collection += 1;
+            self.selected_item = 0;
+        }
+        // else: already at bottom of last collection, do nothing
     }
 
     fn navigate_left(&mut self) {
@@ -1169,6 +1224,7 @@ impl App {
 
         // Global commands (always shown)
         help.push(("", "── Global ──"));
+        help.push(("1-4", "Jump to panel"));
         help.push(("Tab", "Next panel"));
         help.push(("Shift+Tab", "Previous panel"));
         help.push(("W / Ctrl+s", "Save request to collection"));

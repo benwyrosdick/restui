@@ -47,9 +47,9 @@ pub fn draw_layout(frame: &mut Frame, app: &mut App) {
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),    // URL bar
-            Constraint::Percentage(45), // Request editor
-            Constraint::Percentage(45), // Response viewer
+            Constraint::Length(3),      // URL bar
+            Constraint::Percentage(40), // Request editor
+            Constraint::Min(5),         // Response viewer (fills remaining space)
         ])
         .split(main_chunks[1]);
 

@@ -31,7 +31,6 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_collections(frame: &mut Frame, app: &App, area: Rect) {
     let mut items: Vec<ListItem> = Vec::new();
-    let mut current_index = 0;
 
     for (col_idx, collection) in app.collections.iter().enumerate() {
         // Collection header
@@ -48,9 +47,9 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect) {
         ])));
 
         if collection.expanded {
-            for (depth, item) in collection.flatten() {
+            for (item_idx, (depth, item)) in collection.flatten().into_iter().enumerate() {
                 let is_selected = col_idx == app.selected_collection
-                    && current_index == app.selected_item;
+                    && item_idx == app.selected_item;
 
                 let indent = "  ".repeat(depth + 1);
                 let (icon, name, method_style) = match item {
@@ -87,8 +86,6 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect) {
                     Span::styled(icon, method_style),
                     Span::styled(name, name_style),
                 ])));
-
-                current_index += 1;
             }
         }
     }
