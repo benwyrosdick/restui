@@ -143,17 +143,33 @@ pub fn draw_layout(frame: &mut Frame, app: &mut App) {
 
 fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
     let env_name = app.environments.active_name();
-    let title = format!(" restui                                              [Env: {}] ", env_name);
+    let version = env!("CARGO_PKG_VERSION");
 
-    // Use environment color if set, otherwise default to blue with white text
+    // Split header into left and right halves
+    let header_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    // Left half: Dark gray background (matching footer) with "ResTUI" in white and version in purple
+    let left_content = Line::from(vec![
+        Span::styled(" ResTUI ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("v{}", version), Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+    ]);
+    let left_header = Paragraph::new(left_content)
+        .style(Style::default().bg(Color::DarkGray));
+    frame.render_widget(left_header, header_chunks[0]);
+
+    // Right half: Environment-colored background with environment name
     let (bg_color, fg_color) = app.environments.active_color()
         .map(parse_color_with_contrast)
         .unwrap_or((Color::Blue, Color::White));
 
-    let header = Paragraph::new(title)
-        .style(Style::default().bg(bg_color).fg(fg_color));
-
-    frame.render_widget(header, area);
+    let right_title = format!("[Env: {}] ", env_name);
+    let right_header = Paragraph::new(right_title)
+        .style(Style::default().bg(bg_color).fg(fg_color).add_modifier(Modifier::BOLD))
+        .alignment(ratatui::layout::Alignment::Right);
+    frame.render_widget(right_header, header_chunks[1]);
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
