@@ -13,6 +13,7 @@ use std::path::PathBuf;
 pub enum FocusedPanel {
     #[default]
     RequestList,
+    UrlBar,
     RequestEditor,
     ResponseView,
 }
@@ -20,7 +21,8 @@ pub enum FocusedPanel {
 impl FocusedPanel {
     pub fn next(&self) -> Self {
         match self {
-            FocusedPanel::RequestList => FocusedPanel::RequestEditor,
+            FocusedPanel::RequestList => FocusedPanel::UrlBar,
+            FocusedPanel::UrlBar => FocusedPanel::RequestEditor,
             FocusedPanel::RequestEditor => FocusedPanel::ResponseView,
             FocusedPanel::ResponseView => FocusedPanel::RequestList,
         }
@@ -29,7 +31,8 @@ impl FocusedPanel {
     pub fn prev(&self) -> Self {
         match self {
             FocusedPanel::RequestList => FocusedPanel::ResponseView,
-            FocusedPanel::RequestEditor => FocusedPanel::RequestList,
+            FocusedPanel::UrlBar => FocusedPanel::RequestList,
+            FocusedPanel::RequestEditor => FocusedPanel::UrlBar,
             FocusedPanel::ResponseView => FocusedPanel::RequestEditor,
         }
     }
@@ -140,6 +143,23 @@ pub struct App {
 
     // Response scroll
     pub response_scroll: u16,
+
+    // Help popup
+    pub show_help: bool,
+
+    // Layout areas for mouse click detection
+    pub layout_areas: LayoutAreas,
+}
+
+/// Stores the layout areas for mouse click detection
+#[derive(Debug, Clone, Default)]
+pub struct LayoutAreas {
+    pub request_list: Option<(u16, u16, u16, u16)>,  // x, y, width, height
+    pub url_bar: Option<(u16, u16, u16, u16)>,
+    pub request_editor: Option<(u16, u16, u16, u16)>,
+    pub response_view: Option<(u16, u16, u16, u16)>,
+    pub tabs: Option<(u16, u16, u16, u16)>,
+    pub tab_positions: Vec<(u16, u16, RequestTab)>,  // x, width, tab
 }
 
 impl App {
@@ -177,6 +197,8 @@ impl App {
             status_message: None,
             error_message: None,
             response_scroll: 0,
+            show_help: false,
+            layout_areas: LayoutAreas::default(),
         })
     }
 
@@ -219,6 +241,19 @@ impl App {
         // Clear any previous error on new input
         self.error_message = None;
 
+        // If help is showing, any key closes it
+        if self.show_help {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
+                    self.show_help = false;
+                }
+                _ => {
+                    self.show_help = false;
+                }
+            }
+            return Ok(false);
+        }
+
         // Global shortcuts
         match (key.code, key.modifiers) {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _)
@@ -233,6 +268,75 @@ impl App {
         match self.input_mode {
             InputMode::Normal => self.handle_normal_mode(key).await,
             InputMode::Editing => self.handle_editing_mode(key),
+        }
+    }
+
+    /// Handle mouse click events
+    pub fn handle_mouse_click(&mut self, x: u16, y: u16) {
+        // Close help popup if showing
+        if self.show_help {
+            self.show_help = false;
+            return;
+        }
+
+        // Check which panel was clicked
+        if let Some((px, py, pw, ph)) = self.layout_areas.request_list {
+            if x >= px && x < px + pw && y >= py && y < py + ph {
+                self.focused_panel = FocusedPanel::RequestList;
+                self.input_mode = InputMode::Normal;
+                self.editing_field = None;
+                
+                // Calculate which item was clicked (accounting for border)
+                let relative_y = y.saturating_sub(py + 1); // +1 for border
+                if self.show_history {
+                    let max = self.history.entries.len().saturating_sub(1);
+                    self.selected_history = (relative_y as usize).min(max);
+                } else {
+                    let max = self.get_visible_items_count().saturating_sub(1);
+                    self.selected_item = (relative_y as usize).min(max);
+                }
+                return;
+            }
+        }
+
+        if let Some((px, py, pw, ph)) = self.layout_areas.url_bar {
+            if x >= px && x < px + pw && y >= py && y < py + ph {
+                self.focused_panel = FocusedPanel::UrlBar;
+                // Start editing URL on click
+                self.input_mode = InputMode::Editing;
+                self.editing_field = Some(EditingField::Url);
+                return;
+            }
+        }
+
+        if let Some((px, py, pw, ph)) = self.layout_areas.request_editor {
+            if x >= px && x < px + pw && y >= py && y < py + ph {
+                self.focused_panel = FocusedPanel::RequestEditor;
+                
+                // Check if a tab was clicked
+                for (tab_x, tab_width, tab) in &self.layout_areas.tab_positions {
+                    if x >= *tab_x && x < tab_x + tab_width {
+                        self.request_tab = *tab;
+                        self.input_mode = InputMode::Normal;
+                        self.editing_field = None;
+                        return;
+                    }
+                }
+                
+                // Otherwise just focus the panel
+                self.input_mode = InputMode::Normal;
+                self.editing_field = None;
+                return;
+            }
+        }
+
+        if let Some((px, py, pw, ph)) = self.layout_areas.response_view {
+            if x >= px && x < px + pw && y >= py && y < py + ph {
+                self.focused_panel = FocusedPanel::ResponseView;
+                self.input_mode = InputMode::Normal;
+                self.editing_field = None;
+                return;
+            }
         }
     }
 
@@ -283,24 +387,36 @@ impl App {
 
             // Edit current field
             KeyCode::Char('i') => {
-                if self.focused_panel == FocusedPanel::RequestEditor {
+                if self.focused_panel == FocusedPanel::UrlBar {
+                    self.input_mode = InputMode::Editing;
+                    self.editing_field = Some(EditingField::Url);
+                } else if self.focused_panel == FocusedPanel::RequestEditor {
                     self.enter_edit_mode();
                 }
             }
 
             // Cycle HTTP method
             KeyCode::Char('m') | KeyCode::Char('M') => {
-                if self.focused_panel == FocusedPanel::RequestEditor {
+                if self.focused_panel == FocusedPanel::UrlBar
+                    || self.focused_panel == FocusedPanel::RequestEditor
+                {
                     self.current_request.method = self.current_request.method.next();
                 }
             }
 
-            // Help (placeholder)
+            // Cycle auth type
+            KeyCode::Char('a') => {
+                if self.focused_panel == FocusedPanel::RequestEditor
+                    && self.request_tab == RequestTab::Auth
+                {
+                    self.current_request.auth.auth_type =
+                        self.current_request.auth.auth_type.next();
+                }
+            }
+
+            // Help popup
             KeyCode::Char('?') => {
-                self.status_message = Some(
-                    "Tab:switch panels | Enter:select | i:edit | s:send | n:new | e:env | q:quit"
-                        .to_string(),
-                );
+                self.show_help = true;
             }
 
             _ => {}
@@ -315,14 +431,17 @@ impl App {
                 self.input_mode = InputMode::Normal;
                 self.editing_field = None;
             }
+            // Tab to move to next field
+            KeyCode::Tab => {
+                self.next_editing_field();
+            }
             KeyCode::Enter => {
-                // Exit editing mode on Enter (except for body which is multiline)
-                if !matches!(self.editing_field, Some(EditingField::Body)) {
-                    self.input_mode = InputMode::Normal;
-                    self.editing_field = None;
-                } else {
-                    // Add newline to body
+                // For body, add newline
+                // For other fields, move to next field
+                if matches!(self.editing_field, Some(EditingField::Body)) {
                     self.current_request.body.push('\n');
+                } else {
+                    self.next_editing_field();
                 }
             }
             KeyCode::Backspace => {
@@ -486,13 +605,18 @@ impl App {
                     if let Some(entry) = self.history.entries.get(self.selected_history) {
                         self.current_request = entry.request.clone();
                         self.response = None;
-                        self.focused_panel = FocusedPanel::RequestEditor;
+                        self.focused_panel = FocusedPanel::UrlBar;
                     }
                 } else {
                     // Load selected request from collection
                     self.load_selected_request();
-                    self.focused_panel = FocusedPanel::RequestEditor;
+                    self.focused_panel = FocusedPanel::UrlBar;
                 }
+            }
+            FocusedPanel::UrlBar => {
+                // Start editing URL
+                self.input_mode = InputMode::Editing;
+                self.editing_field = Some(EditingField::Url);
             }
             FocusedPanel::RequestEditor => {
                 self.enter_edit_mode();
@@ -504,8 +628,96 @@ impl App {
 
     fn enter_edit_mode(&mut self) {
         self.input_mode = InputMode::Editing;
-        // Default to URL editing
-        self.editing_field = Some(EditingField::Url);
+        // Set editing field based on current tab
+        self.editing_field = Some(self.get_default_editing_field());
+    }
+
+    /// Get the default editing field for the current tab
+    fn get_default_editing_field(&mut self) -> EditingField {
+        match self.request_tab {
+            RequestTab::Headers => {
+                if self.current_request.headers.is_empty() {
+                    // Add a new header if none exist
+                    self.current_request.headers.push(crate::storage::KeyValue::new("", ""));
+                }
+                EditingField::HeaderKey(0)
+            }
+            RequestTab::Body => EditingField::Body,
+            RequestTab::Auth => {
+                match self.current_request.auth.auth_type {
+                    crate::storage::AuthType::None => {
+                        self.status_message = Some("Select auth type first with 'a' key".to_string());
+                        EditingField::Url
+                    }
+                    crate::storage::AuthType::Bearer => EditingField::AuthBearerToken,
+                    crate::storage::AuthType::Basic => EditingField::AuthBasicUsername,
+                    crate::storage::AuthType::ApiKey => EditingField::AuthApiKeyName,
+                }
+            }
+            RequestTab::Params => {
+                if self.current_request.query_params.is_empty() {
+                    self.current_request.query_params.push(crate::storage::KeyValue::new("", ""));
+                }
+                EditingField::ParamKey(0)
+            }
+        }
+    }
+
+    /// Navigate to the next editable field within current context
+    fn next_editing_field(&mut self) {
+        let next = match (&self.editing_field, &self.request_tab) {
+            // Headers: key -> value -> next key -> next value -> ...
+            (Some(EditingField::HeaderKey(i)), RequestTab::Headers) => {
+                EditingField::HeaderValue(*i)
+            }
+            (Some(EditingField::HeaderValue(i)), RequestTab::Headers) => {
+                let next_idx = i + 1;
+                if next_idx < self.current_request.headers.len() {
+                    EditingField::HeaderKey(next_idx)
+                } else {
+                    // Add new header and edit it
+                    self.current_request.headers.push(crate::storage::KeyValue::new("", ""));
+                    EditingField::HeaderKey(next_idx)
+                }
+            }
+            // Params: key -> value -> next key -> next value -> ...
+            (Some(EditingField::ParamKey(i)), RequestTab::Params) => {
+                EditingField::ParamValue(*i)
+            }
+            (Some(EditingField::ParamValue(i)), RequestTab::Params) => {
+                let next_idx = i + 1;
+                if next_idx < self.current_request.query_params.len() {
+                    EditingField::ParamKey(next_idx)
+                } else {
+                    // Add new param and edit it
+                    self.current_request.query_params.push(crate::storage::KeyValue::new("", ""));
+                    EditingField::ParamKey(next_idx)
+                }
+            }
+            // Auth: cycle through auth fields
+            (Some(EditingField::AuthBearerToken), RequestTab::Auth) => {
+                EditingField::AuthBearerToken // Only one field for bearer
+            }
+            (Some(EditingField::AuthBasicUsername), RequestTab::Auth) => {
+                EditingField::AuthBasicPassword
+            }
+            (Some(EditingField::AuthBasicPassword), RequestTab::Auth) => {
+                EditingField::AuthBasicUsername
+            }
+            (Some(EditingField::AuthApiKeyName), RequestTab::Auth) => {
+                EditingField::AuthApiKeyValue
+            }
+            (Some(EditingField::AuthApiKeyValue), RequestTab::Auth) => {
+                EditingField::AuthApiKeyName
+            }
+            // Body: stay on body
+            (Some(EditingField::Body), RequestTab::Body) => EditingField::Body,
+            // URL stays on URL
+            (Some(EditingField::Url), _) => EditingField::Url,
+            // Default
+            _ => self.get_default_editing_field(),
+        };
+        self.editing_field = Some(next);
     }
 
     fn load_selected_request(&mut self) {
@@ -530,8 +742,9 @@ impl App {
     fn new_request(&mut self) {
         self.current_request = ApiRequest::default();
         self.response = None;
-        self.focused_panel = FocusedPanel::RequestEditor;
-        self.enter_edit_mode();
+        self.focused_panel = FocusedPanel::UrlBar;
+        self.input_mode = InputMode::Editing;
+        self.editing_field = Some(EditingField::Url);
     }
 
     async fn send_request(&mut self) -> Result<()> {
@@ -610,6 +823,89 @@ impl App {
         }
 
         Ok(())
+    }
+
+    /// Get contextual help based on current state
+    pub fn get_help_content(&self) -> Vec<(&'static str, &'static str)> {
+        let mut help = Vec::new();
+
+        // Global commands (always shown)
+        help.push(("", "── Global ──"));
+        help.push(("Tab", "Next panel"));
+        help.push(("Shift+Tab", "Previous panel"));
+        help.push(("?", "Toggle help"));
+        help.push(("q / Ctrl+c", "Quit"));
+
+        match self.input_mode {
+            InputMode::Editing => {
+                help.push(("", "── Editing Mode ──"));
+                help.push(("Esc", "Exit edit mode"));
+                help.push(("Tab", "Next field"));
+                help.push(("Enter", "Next field / New line (body)"));
+                help.push(("Backspace", "Delete character"));
+                help.push(("", "Just start typing to enter text"));
+            }
+            InputMode::Normal => {
+                match self.focused_panel {
+                    FocusedPanel::RequestList => {
+                        help.push(("", "── Request List ──"));
+                        help.push(("j / ↓", "Move down"));
+                        help.push(("k / ↑", "Move up"));
+                        help.push(("Enter", "Load request"));
+                        help.push(("H", "Toggle history view"));
+                        help.push(("n", "New request"));
+                    }
+                    FocusedPanel::UrlBar => {
+                        help.push(("", "── URL Bar ──"));
+                        help.push(("Enter / i", "Edit URL"));
+                        help.push(("m", "Cycle HTTP method (GET/POST/...)"));
+                        help.push(("s", "Send request"));
+                        help.push(("e", "Switch environment"));
+                        help.push(("n", "New request"));
+                    }
+                    FocusedPanel::RequestEditor => {
+                        help.push(("", "── Request Editor ──"));
+                        help.push(("h / ←", "Previous tab"));
+                        help.push(("l / →", "Next tab"));
+                        help.push(("Enter", "Start editing current tab"));
+                        help.push(("m", "Cycle HTTP method (GET/POST/...)"));
+                        help.push(("s", "Send request"));
+                        help.push(("e", "Switch environment"));
+                        help.push(("n", "New request"));
+
+                        // Tab-specific hints
+                        match self.request_tab {
+                            RequestTab::Headers => {
+                                help.push(("", "── Headers Tab ──"));
+                                help.push(("Enter", "Edit headers (Tab to next field)"));
+                            }
+                            RequestTab::Body => {
+                                help.push(("", "── Body Tab ──"));
+                                help.push(("Enter", "Edit request body"));
+                            }
+                            RequestTab::Auth => {
+                                help.push(("", "── Auth Tab ──"));
+                                help.push(("a", "Cycle auth type first"));
+                                help.push(("Enter", "Edit auth credentials"));
+                                help.push(("", "Types: None → Bearer → Basic → API Key"));
+                            }
+                            RequestTab::Params => {
+                                help.push(("", "── Params Tab ──"));
+                                help.push(("Enter", "Edit params (Tab to next field)"));
+                            }
+                        }
+                    }
+                    FocusedPanel::ResponseView => {
+                        help.push(("", "── Response View ──"));
+                        help.push(("j / ↓", "Scroll down"));
+                        help.push(("k / ↑", "Scroll up"));
+                        help.push(("s", "Send request again"));
+                    }
+                }
+            }
+        }
+
+        help
     }
 }
 

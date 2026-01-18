@@ -10,91 +10,34 @@ use ratatui::{
 
 use super::layout::bordered_block;
 
-pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestEditor;
     let block = bordered_block("Request", focused);
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
-    // Split into: URL bar, tabs, content
+    // Split into: tabs, content
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // URL bar
             Constraint::Length(1), // Tabs
             Constraint::Min(3),    // Content
         ])
         .split(inner_area);
 
-    draw_url_bar(frame, app, chunks[0]);
-    draw_tabs(frame, app, chunks[1]);
+    draw_tabs(frame, app, chunks[0]);
 
     match app.request_tab {
-        RequestTab::Headers => draw_headers(frame, app, chunks[2]),
-        RequestTab::Body => draw_body(frame, app, chunks[2]),
-        RequestTab::Auth => draw_auth(frame, app, chunks[2]),
-        RequestTab::Params => draw_params(frame, app, chunks[2]),
+        RequestTab::Headers => draw_headers(frame, app, chunks[1]),
+        RequestTab::Body => draw_body(frame, app, chunks[1]),
+        RequestTab::Auth => draw_auth(frame, app, chunks[1]),
+        RequestTab::Params => draw_params(frame, app, chunks[1]),
     }
 }
 
-fn draw_url_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let method_color = match app.current_request.method {
-        crate::storage::HttpMethod::Get => Color::Green,
-        crate::storage::HttpMethod::Post => Color::Yellow,
-        crate::storage::HttpMethod::Put => Color::Blue,
-        crate::storage::HttpMethod::Delete => Color::Red,
-    };
-
-    let is_editing_url =
-        app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Url);
-
-    let url_style = if is_editing_url {
-        Style::default().bg(Color::DarkGray)
-    } else {
-        Style::default()
-    };
-
-    let url_display = if is_editing_url {
-        format!("{}|", &app.current_request.url)
-    } else {
-        app.current_request.url.clone()
-    };
-
-    let url_line = Line::from(vec![
-        Span::styled(
-            format!(" {} ", app.current_request.method.as_str()),
-            Style::default().fg(Color::Black).bg(method_color).add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" "),
-        Span::styled(
-            if url_display.is_empty() {
-                "Enter URL...".to_string()
-            } else {
-                url_display
-            },
-            if app.current_request.url.is_empty() && !is_editing_url {
-                Style::default().fg(Color::DarkGray)
-            } else {
-                url_style
-            },
-        ),
-    ]);
-
-    let url_bar = Paragraph::new(url_line).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(if is_editing_url {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            }),
-    );
-
-    frame.render_widget(url_bar, area);
-}
-
-fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    let titles: Vec<Line> = RequestTab::all()
+fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect) {
+    let tabs_list = RequestTab::all();
+    let titles: Vec<Line> = tabs_list
         .iter()
         .map(|t| {
             let style = if *t == app.request_tab {
@@ -107,6 +50,19 @@ fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
             Line::styled(t.as_str(), style)
         })
         .collect();
+
+    // Calculate and store tab positions for mouse click detection
+    // Format: "Headers | Body | Auth | Params"
+    // Each tab has its text width, plus separator " | " (3 chars) between tabs
+    let mut tab_positions = Vec::new();
+    let mut current_x = area.x;
+    for tab in tabs_list {
+        let tab_width = tab.as_str().len() as u16;
+        tab_positions.push((current_x, tab_width, *tab));
+        // Add tab width + separator " | " (3 chars)
+        current_x += tab_width + 3;
+    }
+    app.layout_areas.tab_positions = tab_positions;
 
     let tabs = Tabs::new(titles)
         .select(app.request_tab as usize)

@@ -7,7 +7,7 @@ mod ui;
 use anyhow::Result;
 use app::App;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, MouseButton, MouseEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -62,19 +62,27 @@ async fn run_app(
 
         // Poll for events with a timeout to allow async operations
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match app.handle_key(key).await {
-                        Ok(should_quit) => {
-                            if should_quit {
-                                return Ok(());
+            match event::read()? {
+                Event::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
+                        match app.handle_key(key).await {
+                            Ok(should_quit) => {
+                                if should_quit {
+                                    return Ok(());
+                                }
                             }
-                        }
-                        Err(e) => {
-                            app.set_error(format!("Error: {e}"));
+                            Err(e) => {
+                                app.set_error(format!("Error: {e}"));
+                            }
                         }
                     }
                 }
+                Event::Mouse(mouse) => {
+                    if mouse.kind == MouseEventKind::Down(MouseButton::Left) {
+                        app.handle_mouse_click(mouse.column, mouse.row);
+                    }
+                }
+                _ => {}
             }
         }
 

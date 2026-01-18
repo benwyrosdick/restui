@@ -7,10 +7,15 @@ use ratatui::{
     Frame,
 };
 
-use super::{request_editor, request_list, response};
+use super::{request_editor, request_list, response, url_bar};
+
+/// Helper to convert Rect to tuple for storage
+fn rect_to_tuple(r: Rect) -> (u16, u16, u16, u16) {
+    (r.x, r.y, r.width, r.height)
+}
 
 /// Main application layout
-pub fn draw_layout(frame: &mut Frame, app: &App) {
+pub fn draw_layout(frame: &mut Frame, app: &mut App) {
     let size = frame.area();
 
     // Main vertical layout: header, main content, footer
@@ -32,20 +37,35 @@ pub fn draw_layout(frame: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
         .split(chunks[1]);
 
+    // Store layout areas for mouse click detection
+    app.layout_areas.request_list = Some(rect_to_tuple(main_chunks[0]));
+
     // Left panel: Request list / History
     request_list::draw(frame, app, main_chunks[0]);
 
-    // Right panel: Request editor + Response viewer
+    // Right panel: URL bar + Request editor + Response viewer
     let right_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([
+            Constraint::Length(3),    // URL bar
+            Constraint::Percentage(45), // Request editor
+            Constraint::Percentage(45), // Response viewer
+        ])
         .split(main_chunks[1]);
 
-    // Request editor
-    request_editor::draw(frame, app, right_chunks[0]);
+    // Store more layout areas
+    app.layout_areas.url_bar = Some(rect_to_tuple(right_chunks[0]));
+    app.layout_areas.request_editor = Some(rect_to_tuple(right_chunks[1]));
+    app.layout_areas.response_view = Some(rect_to_tuple(right_chunks[2]));
+
+    // URL bar
+    url_bar::draw(frame, app, right_chunks[0]);
+
+    // Request editor (also stores tab positions)
+    request_editor::draw(frame, app, right_chunks[1]);
 
     // Response viewer
-    response::draw(frame, app, right_chunks[1]);
+    response::draw(frame, app, right_chunks[2]);
 
     // Draw footer
     draw_footer(frame, app, chunks[2]);
