@@ -211,11 +211,7 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
             } else if auth.bearer_token.is_empty() {
                 spans.push(Span::styled("Enter token...", Style::default().fg(Color::DarkGray)));
             } else {
-                // Truncate when not editing
-                spans.push(Span::styled(
-                    format!("{}...", &auth.bearer_token.chars().take(20).collect::<String>()),
-                    Style::default(),
-                ));
+                spans.push(Span::styled(&auth.bearer_token, Style::default()));
             }
             lines.push(Line::from(spans));
         }
@@ -282,11 +278,7 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect) {
             } else if auth.api_key_value.is_empty() {
                 value_spans.push(Span::styled("Enter API key...", Style::default().fg(Color::DarkGray)));
             } else {
-                // Truncate when not editing
-                value_spans.push(Span::styled(
-                    format!("{}...", &auth.api_key_value.chars().take(20).collect::<String>()),
-                    Style::default(),
-                ));
+                value_spans.push(Span::styled(&auth.api_key_value, Style::default()));
             }
             lines.push(Line::from(value_spans));
 
