@@ -728,6 +728,10 @@ impl App {
             KeyCode::Char('D') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
                 self.start_delete_collection();
             }
+            // Duplicate request with p
+            KeyCode::Char('p') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+                self.duplicate_selected_request();
+            }
             // Toggle expand/collapse with space
             KeyCode::Char(' ') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
                 self.toggle_expand_collapse();
@@ -1799,6 +1803,69 @@ impl App {
         }
     }
 
+    fn duplicate_selected_request(&mut self) {
+        if self.collections.is_empty() {
+            return;
+        }
+
+        let collection = match self.collections.get(self.selected_collection) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let flattened = collection.flatten();
+        let Some((_, item)) = flattened.get(self.selected_item) else {
+            return;
+        };
+
+        // Only duplicate requests, not folders
+        let CollectionItem::Request(original) = item else {
+            self.status_message = Some("Can only duplicate requests".to_string());
+            return;
+        };
+
+        // Create a copy with new ID and modified name
+        let mut new_request = original.clone();
+        new_request.id = uuid::Uuid::new_v4().to_string();
+        new_request.name = format!("{} (copy)", original.name);
+
+        // Find the parent folder of the original request (if any)
+        let parent_folder_id = self.find_parent_folder_id(&original.id);
+
+        // Add to the collection
+        let collection = self.collections.get_mut(self.selected_collection).unwrap();
+        if let Some(folder_id) = parent_folder_id {
+            collection.add_request_to(new_request, Some(&folder_id));
+        } else {
+            collection.add_request(new_request);
+        }
+
+        self.status_message = Some("Request duplicated".to_string());
+    }
+
+    fn find_parent_folder_id(&self, item_id: &str) -> Option<String> {
+        let collection = self.collections.get(self.selected_collection)?;
+        Self::find_parent_folder_recursive(&collection.items, item_id)
+    }
+
+    fn find_parent_folder_recursive(items: &[CollectionItem], item_id: &str) -> Option<String> {
+        for item in items {
+            if let CollectionItem::Folder { id, items: folder_items, .. } = item {
+                // Check if the item is directly in this folder
+                for child in folder_items {
+                    if child.id() == item_id {
+                        return Some(id.clone());
+                    }
+                }
+                // Recursively check subfolders
+                if let Some(parent_id) = Self::find_parent_folder_recursive(folder_items, item_id) {
+                    return Some(parent_id);
+                }
+            }
+        }
+        None
+    }
+
     fn toggle_expand_collapse(&mut self) {
         if self.collections.is_empty() {
             return;
@@ -1936,6 +2003,7 @@ impl App {
                         help.push(("C", "Create collection"));
                         help.push(("F", "Create folder"));
                         help.push(("r", "Create request"));
+                        help.push(("p", "Duplicate request"));
                         help.push(("R", "Rename selected"));
                         help.push(("d", "Delete selected item"));
                         help.push(("D", "Delete collection"));
