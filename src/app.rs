@@ -173,6 +173,9 @@ pub struct App {
     // Response scroll
     pub response_scroll: u16,
 
+    // Body scroll (for request body editor)
+    pub body_scroll: u16,
+
     // Help popup
     pub show_help: bool,
 
@@ -240,6 +243,7 @@ impl App {
             status_message: None,
             error_message: None,
             response_scroll: 0,
+            body_scroll: 0,
             show_help: false,
             selected_param_index: 0,
             selected_header_index: 0,
@@ -435,7 +439,8 @@ impl App {
                                         self.input_mode = InputMode::Editing;
                                         self.editing_field = Some(EditingField::Body);
 
-                                        let click_row = (y - by) as usize;
+                                        // Account for scroll offset when calculating clicked row
+                                        let click_row = (y - by) as usize + self.body_scroll as usize;
                                         let click_col = (x - bx) as usize;
 
                                         let body = &self.current_request.body;
@@ -447,7 +452,9 @@ impl App {
                                                 char_pos += click_col.min(line.len());
                                                 break;
                                             }
-                                            char_pos += line.len() + 1;
+                                            if i < lines.len() - 1 {
+                                                char_pos += line.len() + 1;
+                                            }
                                         }
 
                                         self.cursor_position = char_pos.min(body.len());
@@ -506,6 +513,18 @@ impl App {
                     self.response_scroll = self.response_scroll.saturating_sub(3);
                 } else {
                     self.response_scroll = self.response_scroll.saturating_add(3);
+                }
+                return;
+            }
+        }
+
+        // Check if scroll is within body area
+        if let Some((bx, by, bw, bh)) = self.layout_areas.body_area {
+            if x >= bx && x < bx + bw && y >= by && y < by + bh {
+                if up {
+                    self.body_scroll = self.body_scroll.saturating_sub(3);
+                } else {
+                    self.body_scroll = self.body_scroll.saturating_add(3);
                 }
             }
         }
@@ -856,6 +875,8 @@ impl App {
             text.insert(byte_pos, c);
         }
         self.cursor_position += 1;
+        // Keep cursor visible when typing (especially for newlines)
+        self.ensure_body_cursor_visible();
     }
 
     fn cursor_left(&mut self) {
@@ -905,6 +926,7 @@ impl App {
 
         // Move to same column on previous line (or end of line if shorter)
         self.cursor_position = prev_line_start + col.min(prev_line_len);
+        self.ensure_body_cursor_visible();
     }
 
     fn cursor_down(&mut self) {
@@ -934,12 +956,41 @@ impl App {
 
         // Move to same column on next line (or end of line if shorter)
         self.cursor_position = next_line_start + col.min(next_line_len);
+        self.ensure_body_cursor_visible();
     }
 
     /// Set editing field and position cursor at end
     fn set_editing_field(&mut self, field: EditingField) {
         self.editing_field = Some(field);
         self.cursor_position = self.get_current_field_len();
+    }
+
+    /// Ensure the cursor is visible in the body editor by adjusting scroll
+    fn ensure_body_cursor_visible(&mut self) {
+        if !matches!(self.editing_field, Some(EditingField::Body)) {
+            return;
+        }
+
+        let body = &self.current_request.body;
+        let cursor_pos = self.cursor_position.min(body.len());
+
+        // Find which line the cursor is on
+        let cursor_line = body[..cursor_pos].matches('\n').count();
+
+        // Get visible height from layout (default to 10 if not set)
+        let visible_height = self.layout_areas.body_area
+            .map(|(_, _, _, h)| h as usize)
+            .unwrap_or(10);
+
+        // Adjust scroll if cursor is above visible area
+        if cursor_line < self.body_scroll as usize {
+            self.body_scroll = cursor_line as u16;
+        }
+
+        // Adjust scroll if cursor is below visible area
+        if cursor_line >= self.body_scroll as usize + visible_height {
+            self.body_scroll = (cursor_line - visible_height + 1) as u16;
+        }
     }
 
     fn navigate_up(&mut self) {
@@ -959,6 +1010,9 @@ impl App {
             }
             FocusedPanel::RequestEditor if self.request_tab == RequestTab::Headers => {
                 self.selected_header_index = self.selected_header_index.saturating_sub(1);
+            }
+            FocusedPanel::RequestEditor if self.request_tab == RequestTab::Body => {
+                self.body_scroll = self.body_scroll.saturating_sub(1);
             }
             _ => {}
         }
@@ -984,6 +1038,9 @@ impl App {
             FocusedPanel::RequestEditor if self.request_tab == RequestTab::Headers => {
                 let max = self.current_request.headers.len().saturating_sub(1);
                 self.selected_header_index = (self.selected_header_index + 1).min(max);
+            }
+            FocusedPanel::RequestEditor if self.request_tab == RequestTab::Body => {
+                self.body_scroll = self.body_scroll.saturating_add(1);
             }
             _ => {}
         }
@@ -1053,6 +1110,7 @@ impl App {
                         self.response = None;
                         self.selected_param_index = 0;
                         self.selected_header_index = 0;
+                        self.body_scroll = 0;
                         self.focused_panel = FocusedPanel::UrlBar;
                     }
                 } else {
@@ -1088,8 +1146,11 @@ impl App {
                 if self.current_request.headers.is_empty() {
                     // Add a new header if none exist
                     self.current_request.headers.push(crate::storage::KeyValue::new("", ""));
+                    self.selected_header_index = 0;
                 }
-                EditingField::HeaderKey(0)
+                // Start editing the selected header
+                let idx = self.selected_header_index.min(self.current_request.headers.len().saturating_sub(1));
+                EditingField::HeaderKey(idx)
             }
             RequestTab::Body => EditingField::Body,
             RequestTab::Auth => {
@@ -1106,8 +1167,11 @@ impl App {
             RequestTab::Params => {
                 if self.current_request.query_params.is_empty() {
                     self.current_request.query_params.push(crate::storage::KeyValue::new("", ""));
+                    self.selected_param_index = 0;
                 }
-                EditingField::ParamKey(0)
+                // Start editing the selected param
+                let idx = self.selected_param_index.min(self.current_request.query_params.len().saturating_sub(1));
+                EditingField::ParamKey(idx)
             }
         }
     }
@@ -1179,6 +1243,7 @@ impl App {
                     self.response = None;
                     self.selected_param_index = 0;
                     self.selected_header_index = 0;
+                    self.body_scroll = 0;
                 }
             }
         }
@@ -1197,6 +1262,7 @@ impl App {
         self.response = None;
         self.selected_param_index = 0;
         self.selected_header_index = 0;
+        self.body_scroll = 0;
         self.focused_panel = FocusedPanel::UrlBar;
         self.input_mode = InputMode::Editing;
         self.set_editing_field(EditingField::Url);

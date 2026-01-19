@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Tabs},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Tabs},
     Frame,
 };
 
@@ -260,8 +260,28 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
     let inner_area = block.inner(area);
     app.layout_areas.body_area = Some((inner_area.x, inner_area.y, inner_area.width, inner_area.height));
 
-    let para = Paragraph::new(lines).block(block);
+    let total_lines = lines.len() as u16;
+
+    let para = Paragraph::new(lines)
+        .block(block)
+        .scroll((app.body_scroll, 0));
     frame.render_widget(para, area);
+
+    // Render scrollbar if content is larger than area
+    if total_lines > inner_area.height {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
+
+        let mut scrollbar_state =
+            ScrollbarState::new(total_lines as usize).position(app.body_scroll as usize);
+
+        frame.render_stateful_widget(
+            scrollbar,
+            area,
+            &mut scrollbar_state,
+        );
+    }
 }
 
 fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
