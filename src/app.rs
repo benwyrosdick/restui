@@ -195,8 +195,12 @@ pub struct LayoutAreas {
     pub url_bar: Option<(u16, u16, u16, u16)>,
     pub request_editor: Option<(u16, u16, u16, u16)>,
     pub response_view: Option<(u16, u16, u16, u16)>,
-    pub tabs: Option<(u16, u16, u16, u16)>,
+    pub tabs_row_y: Option<u16>,  // y-coordinate of the tabs row
     pub tab_positions: Vec<(u16, u16, RequestTab)>,  // x, width, tab
+    // Text field positions for click-to-cursor (x where text starts, y, width)
+    pub url_text_start: Option<u16>,
+    pub body_area: Option<(u16, u16, u16, u16)>,  // x, y, width, height for body text area
+    pub request_content_area: Option<(u16, u16, u16, u16)>,  // content area below tabs
 }
 
 impl App {
@@ -382,7 +386,20 @@ impl App {
                 self.focused_panel = FocusedPanel::UrlBar;
                 // Start editing URL on click
                 self.input_mode = InputMode::Editing;
-                self.set_editing_field(EditingField::Url);
+                self.editing_field = Some(EditingField::Url);
+
+                // Position cursor based on click position
+                if let Some(text_start) = self.layout_areas.url_text_start {
+                    let url_len = self.current_request.url.chars().count();
+                    if x >= text_start {
+                        let click_offset = (x - text_start) as usize;
+                        self.cursor_position = click_offset.min(url_len);
+                    } else {
+                        self.cursor_position = 0;
+                    }
+                } else {
+                    self.cursor_position = self.current_request.url.len();
+                }
                 return;
             }
         }
@@ -390,17 +407,79 @@ impl App {
         if let Some((px, py, pw, ph)) = self.layout_areas.request_editor {
             if x >= px && x < px + pw && y >= py && y < py + ph {
                 self.focused_panel = FocusedPanel::RequestEditor;
-                
-                // Check if a tab was clicked
-                for (tab_x, tab_width, tab) in &self.layout_areas.tab_positions {
-                    if x >= *tab_x && x < tab_x + tab_width {
-                        self.request_tab = *tab;
-                        self.input_mode = InputMode::Normal;
-                        self.editing_field = None;
-                        return;
+
+                // Check if a tab was clicked (must be on the tabs row)
+                if let Some(tabs_y) = self.layout_areas.tabs_row_y {
+                    if y == tabs_y {
+                        for (tab_x, tab_width, tab) in &self.layout_areas.tab_positions {
+                            if x >= *tab_x && x < tab_x + tab_width {
+                                self.request_tab = *tab;
+                                self.input_mode = InputMode::Normal;
+                                self.editing_field = None;
+                                return;
+                            }
+                        }
                     }
                 }
-                
+
+                // Check if content area was clicked
+                if let Some((cx, cy, cw, ch)) = self.layout_areas.request_content_area {
+                    if x >= cx && x < cx + cw && y >= cy && y < cy + ch {
+                        let click_row = (y - cy) as usize;
+
+                        match self.request_tab {
+                            RequestTab::Body => {
+                                // Handle body click-to-cursor
+                                if let Some((bx, by, bw, bh)) = self.layout_areas.body_area {
+                                    if x >= bx && x < bx + bw && y >= by && y < by + bh {
+                                        self.input_mode = InputMode::Editing;
+                                        self.editing_field = Some(EditingField::Body);
+
+                                        let click_row = (y - by) as usize;
+                                        let click_col = (x - bx) as usize;
+
+                                        let body = &self.current_request.body;
+                                        let lines: Vec<&str> = body.split('\n').collect();
+
+                                        let mut char_pos = 0;
+                                        for (i, line) in lines.iter().enumerate() {
+                                            if i == click_row {
+                                                char_pos += click_col.min(line.len());
+                                                break;
+                                            }
+                                            char_pos += line.len() + 1;
+                                        }
+
+                                        self.cursor_position = char_pos.min(body.len());
+                                        return;
+                                    }
+                                }
+                            }
+                            RequestTab::Params => {
+                                // Select the clicked param
+                                let param_count = self.current_request.query_params.len();
+                                if click_row < param_count {
+                                    self.selected_param_index = click_row;
+                                    self.input_mode = InputMode::Normal;
+                                    self.editing_field = None;
+                                    return;
+                                }
+                            }
+                            RequestTab::Headers => {
+                                // Select the clicked header
+                                let header_count = self.current_request.headers.len();
+                                if click_row < header_count {
+                                    self.selected_header_index = click_row;
+                                    self.input_mode = InputMode::Normal;
+                                    self.editing_field = None;
+                                    return;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 // Otherwise just focus the panel
                 self.input_mode = InputMode::Normal;
                 self.editing_field = None;

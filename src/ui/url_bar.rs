@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::UrlBar;
     let is_editing = app.input_mode == InputMode::Editing
         && app.editing_field == Some(EditingField::Url);
@@ -23,14 +23,29 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     // URL display with cursor if editing
     let url_text = &app.current_request.url;
     let url_spans: Vec<Span> = if is_editing {
-        // Insert cursor at the cursor position
+        // Block cursor style (like body editor)
         let cursor_pos = app.cursor_position.min(url_text.len());
-        let (before, after) = url_text.split_at(cursor_pos);
-        vec![
-            Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
-            Span::styled("│", Style::default().fg(Color::White).bg(Color::DarkGray)),
-            Span::styled(after.to_string(), Style::default().bg(Color::DarkGray)),
-        ]
+        if url_text.is_empty() {
+            // Empty text, show block cursor as a space
+            vec![Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black))]
+        } else if cursor_pos >= url_text.len() {
+            // Cursor at end, show block cursor after text
+            vec![
+                Span::styled(url_text.to_string(), Style::default().bg(Color::DarkGray)),
+                Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black)),
+            ]
+        } else {
+            // Cursor in middle, highlight character under cursor
+            let (before, rest) = url_text.split_at(cursor_pos);
+            let mut chars = rest.chars();
+            let cursor_char = chars.next().unwrap_or(' ');
+            let after: String = chars.collect();
+            vec![
+                Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
+                Span::styled(cursor_char.to_string(), Style::default().bg(Color::White).fg(Color::Black)),
+                Span::styled(after, Style::default().bg(Color::DarkGray)),
+            ]
+        }
     } else if url_text.is_empty() {
         vec![Span::styled(
             "Enter URL... (press Enter or 'i' to edit)",
@@ -77,6 +92,13 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         .title_style(title_style);
 
     let url_bar = Paragraph::new(url_line).block(block);
+
+    // Calculate where URL text starts for click-to-cursor positioning
+    // Format: [border] [space] [METHOD] [space] [URL text...]
+    // border = 1, method badge = method.len() + 2, space = 1
+    let method_width = app.current_request.method.as_str().len() as u16 + 2; // " GET "
+    let url_text_start = area.x + 1 + method_width + 1; // border + method + space
+    app.layout_areas.url_text_start = Some(url_text_start);
 
     frame.render_widget(url_bar, area);
 }

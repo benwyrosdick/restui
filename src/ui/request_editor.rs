@@ -58,6 +58,15 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         ])
         .split(inner_area);
 
+    // Store layout areas for mouse click detection
+    app.layout_areas.tabs_row_y = Some(chunks[0].y);
+    app.layout_areas.request_content_area = Some((
+        chunks[1].x,
+        chunks[1].y,
+        chunks[1].width,
+        chunks[1].height,
+    ));
+
     draw_tabs(frame, app, chunks[0], accent);
 
     match app.request_tab {
@@ -169,7 +178,7 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     frame.render_widget(para, area);
 }
 
-fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
+fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
     let is_editing =
         app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Body);
 
@@ -238,18 +247,20 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect) {
             .collect()
     };
 
-    let para = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(if is_editing {
-                    Style::default().fg(Color::Green)
-                } else {
-                    Style::default().fg(Color::DarkGray)
-                })
-                .title(" Body (JSON) "),
-        );
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(if is_editing {
+            Style::default().fg(Color::Green)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        })
+        .title(" Body (JSON) ");
 
+    // Store inner area for click-to-cursor positioning
+    let inner_area = block.inner(area);
+    app.layout_areas.body_area = Some((inner_area.x, inner_area.y, inner_area.width, inner_area.height));
+
+    let para = Paragraph::new(lines).block(block);
     frame.render_widget(para, area);
 }
 
