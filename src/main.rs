@@ -17,8 +17,42 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io;
 use std::time::Duration;
 
+fn print_help() {
+    println!("restui - A TUI API testing tool like Postman");
+    println!();
+    println!("USAGE:");
+    println!("    restui [OPTIONS]");
+    println!();
+    println!("OPTIONS:");
+    println!("    -h, --help       Print help information");
+    println!("    -V, --version    Print version information");
+}
+
+fn print_version() {
+    println!("restui {}", env!("CARGO_PKG_VERSION"));
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Handle command line arguments
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 {
+        match args[1].as_str() {
+            "-h" | "--help" => {
+                print_help();
+                return Ok(());
+            }
+            "-V" | "--version" => {
+                print_version();
+                return Ok(());
+            }
+            arg => {
+                eprintln!("Unknown argument: {}", arg);
+                eprintln!("Use --help for usage information");
+                std::process::exit(1);
+            }
+        }
+    }
     // Set up logging (optional, for debugging)
     tracing_subscriber::fmt()
         .with_env_filter(

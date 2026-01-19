@@ -1,0 +1,44 @@
+# This workflow goes in benwyrosdick/homebrew-tap/.github/workflows/update-formula.yml
+name: Update Formula
+
+on:
+  repository_dispatch:
+    types: [update-formula]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update formula
+        run: |
+          VERSION="${{ github.event.client_payload.version }}"
+          VERSION="${VERSION#v}"  # Remove 'v' prefix if present
+
+          SHA_X86_DARWIN="${{ github.event.client_payload.sha_x86_darwin }}"
+          SHA_ARM_DARWIN="${{ github.event.client_payload.sha_arm_darwin }}"
+          SHA_LINUX="${{ github.event.client_payload.sha_linux }}"
+
+          # Update version
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/restui.rb
+
+          # Update SHA256 sums
+          sed -i "s/sha256 \"SHA256_X86_DARWIN\"/sha256 \"${SHA_X86_DARWIN}\"/" Formula/restui.rb
+          sed -i "s/sha256 \"SHA256_ARM_DARWIN\"/sha256 \"${SHA_ARM_DARWIN}\"/" Formula/restui.rb
+          sed -i "s/sha256 \"SHA256_LINUX\"/sha256 \"${SHA_LINUX}\"/" Formula/restui.rb
+
+          # Also handle updates to existing SHA256 values (40+ hex chars)
+          sed -i "0,/sha256 \"[a-f0-9]\{64\}\"/s//sha256 \"${SHA_ARM_DARWIN}\"/" Formula/restui.rb
+
+          cat Formula/restui.rb
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/restui.rb
+          git commit -m "Update restui to ${{ github.event.client_payload.version }}"
+          git push
