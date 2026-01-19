@@ -35,7 +35,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
     for (col_idx, collection) in app.collections.iter().enumerate() {
         // Collection header
-        let prefix = if collection.expanded { "▼" } else { "▶" };
+        let prefix = if collection.expanded { "▼ " } else { "▶ " };
         let style = if col_idx == app.selected_collection {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {

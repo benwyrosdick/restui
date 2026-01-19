@@ -106,8 +106,12 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect, accent: Color) {
 
 fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let mut lines: Vec<Line> = Vec::new();
+    let is_focused = app.focused_panel == FocusedPanel::RequestEditor
+        && app.request_tab == RequestTab::Headers
+        && app.input_mode == InputMode::Normal;
 
     for (i, header) in app.current_request.headers.iter().enumerate() {
+        let is_selected = is_focused && i == app.selected_header_index;
         let enabled_indicator = if header.enabled { "●" } else { "○" };
 
         let is_editing_key = app.input_mode == InputMode::Editing
@@ -115,16 +119,23 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         let is_editing_value = app.input_mode == InputMode::Editing
             && app.editing_field == Some(EditingField::HeaderValue(i));
 
-        let mut spans = vec![
-            Span::styled(
-                format!("{} ", enabled_indicator),
-                Style::default().fg(if header.enabled {
-                    Color::Green
-                } else {
-                    Color::DarkGray
-                }),
-            ),
-        ];
+        let mut spans = vec![];
+
+        // Selection indicator
+        if is_selected {
+            spans.push(Span::styled("> ", Style::default().fg(accent)));
+        } else {
+            spans.push(Span::raw("  "));
+        }
+
+        spans.push(Span::styled(
+            format!("{} ", enabled_indicator),
+            Style::default().fg(if header.enabled {
+                Color::Green
+            } else {
+                Color::DarkGray
+            }),
+        ));
 
         spans.extend(text_with_cursor(
             &header.key,

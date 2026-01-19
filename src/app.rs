@@ -178,6 +178,8 @@ pub struct App {
 
     // Selected param index for navigation in Params tab
     pub selected_param_index: usize,
+    // Selected header index for navigation in Headers tab
+    pub selected_header_index: usize,
 
     // Dialog state
     pub dialog: DialogState,
@@ -236,6 +238,7 @@ impl App {
             response_scroll: 0,
             show_help: false,
             selected_param_index: 0,
+            selected_header_index: 0,
             dialog: DialogState::default(),
             layout_areas: LayoutAreas::default(),
         })
@@ -544,21 +547,25 @@ impl App {
                 }
             }
 
-            // Toggle param enabled/disabled
+            // Toggle param/header enabled/disabled
             KeyCode::Char('t') => {
-                if self.focused_panel == FocusedPanel::RequestEditor
-                    && self.request_tab == RequestTab::Params
-                {
-                    self.toggle_selected_param();
+                if self.focused_panel == FocusedPanel::RequestEditor {
+                    match self.request_tab {
+                        RequestTab::Params => self.toggle_selected_param(),
+                        RequestTab::Headers => self.toggle_selected_header(),
+                        _ => {}
+                    }
                 }
             }
 
-            // Delete selected param
+            // Delete selected param/header
             KeyCode::Char('x') => {
-                if self.focused_panel == FocusedPanel::RequestEditor
-                    && self.request_tab == RequestTab::Params
-                {
-                    self.delete_selected_param();
+                if self.focused_panel == FocusedPanel::RequestEditor {
+                    match self.request_tab {
+                        RequestTab::Params => self.delete_selected_param(),
+                        RequestTab::Headers => self.delete_selected_header(),
+                        _ => {}
+                    }
                 }
             }
 
@@ -618,6 +625,14 @@ impl App {
             }
             KeyCode::Char('d') | KeyCode::Delete if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_delete_item();
+            }
+            // Delete collection with D
+            KeyCode::Char('D') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+                self.start_delete_collection();
+            }
+            // Toggle expand/collapse with space
+            KeyCode::Char(' ') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+                self.toggle_expand_collapse();
             }
 
             _ => {}
@@ -863,6 +878,9 @@ impl App {
             FocusedPanel::RequestEditor if self.request_tab == RequestTab::Params => {
                 self.selected_param_index = self.selected_param_index.saturating_sub(1);
             }
+            FocusedPanel::RequestEditor if self.request_tab == RequestTab::Headers => {
+                self.selected_header_index = self.selected_header_index.saturating_sub(1);
+            }
             _ => {}
         }
     }
@@ -883,6 +901,10 @@ impl App {
             FocusedPanel::RequestEditor if self.request_tab == RequestTab::Params => {
                 let max = self.current_request.query_params.len().saturating_sub(1);
                 self.selected_param_index = (self.selected_param_index + 1).min(max);
+            }
+            FocusedPanel::RequestEditor if self.request_tab == RequestTab::Headers => {
+                let max = self.current_request.headers.len().saturating_sub(1);
+                self.selected_header_index = (self.selected_header_index + 1).min(max);
             }
             _ => {}
         }
@@ -951,6 +973,7 @@ impl App {
                         self.current_request = entry.request.clone();
                         self.response = None;
                         self.selected_param_index = 0;
+                        self.selected_header_index = 0;
                         self.focused_panel = FocusedPanel::UrlBar;
                     }
                 } else {
@@ -1076,6 +1099,7 @@ impl App {
                     self.current_request_source = Some((self.selected_collection, req.id.clone()));
                     self.response = None;
                     self.selected_param_index = 0;
+                    self.selected_header_index = 0;
                 }
             }
         }
@@ -1093,6 +1117,7 @@ impl App {
         self.current_request_source = None;
         self.response = None;
         self.selected_param_index = 0;
+        self.selected_header_index = 0;
         self.focused_panel = FocusedPanel::UrlBar;
         self.input_mode = InputMode::Editing;
         self.set_editing_field(EditingField::Url);
@@ -1112,6 +1137,24 @@ impl App {
                 && self.selected_param_index > 0
             {
                 self.selected_param_index -= 1;
+            }
+        }
+    }
+
+    fn toggle_selected_header(&mut self) {
+        if let Some(header) = self.current_request.headers.get_mut(self.selected_header_index) {
+            header.enabled = !header.enabled;
+        }
+    }
+
+    fn delete_selected_header(&mut self) {
+        if self.selected_header_index < self.current_request.headers.len() {
+            self.current_request.headers.remove(self.selected_header_index);
+            // Adjust selection if needed
+            if self.selected_header_index >= self.current_request.headers.len()
+                && self.selected_header_index > 0
+            {
+                self.selected_header_index -= 1;
             }
         }
     }
@@ -1597,6 +1640,66 @@ impl App {
         }
     }
 
+    fn start_delete_collection(&mut self) {
+        if let Some(collection) = self.collections.get(self.selected_collection) {
+            self.dialog = DialogState {
+                dialog_type: Some(DialogType::ConfirmDelete {
+                    item_type: ItemType::Collection,
+                    item_id: collection.id.clone(),
+                    item_name: collection.name.clone(),
+                    collection_index: self.selected_collection,
+                }),
+                input_buffer: String::new(),
+            };
+        }
+    }
+
+    fn toggle_expand_collapse(&mut self) {
+        if self.collections.is_empty() {
+            return;
+        }
+
+        let collection = match self.collections.get_mut(self.selected_collection) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let flattened = collection.flatten();
+
+        // If no items or selected_item is 0, toggle the collection itself
+        if flattened.is_empty() || self.selected_item >= flattened.len() {
+            collection.expanded = !collection.expanded;
+            return;
+        }
+
+        // Check if selected item is a folder
+        if let Some((_, item)) = flattened.get(self.selected_item) {
+            if let CollectionItem::Folder { id, .. } = item {
+                let folder_id = id.clone();
+                // Need to toggle the folder's expanded state
+                Self::toggle_folder_expanded(&mut collection.items, &folder_id);
+            } else {
+                // Selected item is a request, toggle the collection
+                collection.expanded = !collection.expanded;
+            }
+        }
+    }
+
+    fn toggle_folder_expanded(items: &mut [CollectionItem], folder_id: &str) -> bool {
+        for item in items {
+            if let CollectionItem::Folder { id, expanded, items: sub_items, .. } = item {
+                if id == folder_id {
+                    *expanded = !*expanded;
+                    return true;
+                }
+                if Self::toggle_folder_expanded(sub_items, folder_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Get the folder ID if current selection is a folder, None otherwise
     fn get_selected_folder_id(&self) -> Option<String> {
         let collection = self.collections.get(self.selected_collection)?;
@@ -1681,6 +1784,7 @@ impl App {
                         help.push(("j / ↓", "Move down"));
                         help.push(("k / ↑", "Move up"));
                         help.push(("Enter", "Load request"));
+                        help.push(("Space", "Toggle expand/collapse"));
                         help.push(("H", "Toggle history view"));
                         help.push(("n", "New request (in editor)"));
                         help.push(("", "── Collection CRUD ──"));
@@ -1688,7 +1792,8 @@ impl App {
                         help.push(("F", "Create folder"));
                         help.push(("r", "Create request"));
                         help.push(("R", "Rename selected"));
-                        help.push(("d", "Delete selected"));
+                        help.push(("d", "Delete selected item"));
+                        help.push(("D", "Delete collection"));
                     }
                     FocusedPanel::UrlBar => {
                         help.push(("", "── URL Bar ──"));
@@ -1712,6 +1817,10 @@ impl App {
                         match self.request_tab {
                             RequestTab::Headers => {
                                 help.push(("", "── Headers Tab ──"));
+                                help.push(("j / ↓", "Select next header"));
+                                help.push(("k / ↑", "Select previous header"));
+                                help.push(("t", "Toggle header on/off"));
+                                help.push(("x", "Delete selected header"));
                                 help.push(("Enter", "Edit headers (Tab to next field)"));
                             }
                             RequestTab::Body => {
