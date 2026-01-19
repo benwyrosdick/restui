@@ -105,15 +105,22 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
-    let mode_indicator = match app.input_mode {
-        InputMode::Normal => Span::styled(
-            " NORMAL ",
-            Style::default().bg(Color::DarkGray).fg(Color::White),
-        ),
-        InputMode::Editing => Span::styled(
-            " EDITING ",
-            Style::default().bg(Color::Green).fg(Color::Black),
-        ),
+    let mode_indicator = if app.pending_move.is_some() {
+        Span::styled(
+            " MOVE ",
+            Style::default().bg(Color::Yellow).fg(Color::Black),
+        )
+    } else {
+        match app.input_mode {
+            InputMode::Normal => Span::styled(
+                " NORMAL ",
+                Style::default().bg(Color::DarkGray).fg(Color::White),
+            ),
+            InputMode::Editing => Span::styled(
+                " EDITING ",
+                Style::default().bg(Color::Green).fg(Color::Black),
+            ),
+        }
     };
 
     // Show status or error message

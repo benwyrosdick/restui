@@ -136,6 +136,15 @@ pub struct DialogState {
     pub input_buffer: String,
 }
 
+/// State for a pending move operation
+#[derive(Debug, Clone)]
+pub struct PendingMove {
+    pub item_id: String,
+    pub item_type: ItemType,
+    pub item_name: String,
+    pub source_collection_index: usize,
+}
+
 /// Application state
 pub struct App {
     pub config: Config,
@@ -189,6 +198,9 @@ pub struct App {
 
     // Layout areas for mouse click detection
     pub layout_areas: LayoutAreas,
+
+    // Pending move operation (cut/paste mode)
+    pub pending_move: Option<PendingMove>,
 }
 
 /// Stores the layout areas for mouse click detection
@@ -249,6 +261,7 @@ impl App {
             selected_header_index: 0,
             dialog: DialogState::default(),
             layout_areas: LayoutAreas::default(),
+            pending_move: None,
         })
     }
 
@@ -567,6 +580,13 @@ impl App {
     }
 
     async fn handle_normal_mode(&mut self, key: KeyEvent) -> Result<bool> {
+        // Cancel pending move with Esc
+        if key.code == KeyCode::Esc && self.pending_move.is_some() {
+            self.pending_move = None;
+            self.status_message = Some("Move cancelled".to_string());
+            return Ok(false);
+        }
+
         match key.code {
             // Panel navigation
             KeyCode::Tab => {
@@ -626,13 +646,12 @@ impl App {
                 }
             }
 
-            // Cycle HTTP method
-            KeyCode::Char('m') | KeyCode::Char('M') => {
+            // Cycle HTTP method (not in RequestList - 'm' is used for move there)
+            KeyCode::Char('m') | KeyCode::Char('M')
                 if self.focused_panel == FocusedPanel::UrlBar
-                    || self.focused_panel == FocusedPanel::RequestEditor
-                {
-                    self.current_request.method = self.current_request.method.next();
-                }
+                    || self.focused_panel == FocusedPanel::RequestEditor =>
+            {
+                self.current_request.method = self.current_request.method.next();
             }
 
             // Cycle auth type
@@ -735,6 +754,10 @@ impl App {
             // Toggle expand/collapse with space
             KeyCode::Char(' ') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
                 self.toggle_expand_collapse();
+            }
+            // Move item with m
+            KeyCode::Char('m') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+                self.start_move_item();
             }
 
             _ => {}
@@ -1152,6 +1175,12 @@ impl App {
     }
 
     async fn handle_enter(&mut self) -> Result<()> {
+        // Check for pending move operation
+        if self.pending_move.is_some() && self.focused_panel == FocusedPanel::RequestList {
+            self.execute_pending_move();
+            return Ok(());
+        }
+
         match self.focused_panel {
             FocusedPanel::RequestList => {
                 if self.show_history {
@@ -1752,6 +1781,7 @@ impl App {
             ItemType::Collection => {
                 if collection_index < self.collections.len() {
                     let name = self.collections[collection_index].name.clone();
+                    let source_path = self.collections[collection_index].source_path.clone();
                     let id = self.collections[collection_index].id.clone();
                     self.collections.remove(collection_index);
 
@@ -1763,7 +1793,11 @@ impl App {
                     self.status_message = Some(format!("Deleted collection: {}", name));
 
                     // Delete the collection file from disk
-                    let path = self.config.collections_dir.join(format!("{}.json", id));
+                    // Use source_path if available (for files with non-standard names),
+                    // otherwise fall back to id-based path
+                    let path = source_path.unwrap_or_else(|| {
+                        self.config.collections_dir.join(format!("{}.json", id))
+                    });
                     let _ = std::fs::remove_file(path);
                 }
             }
@@ -1899,6 +1933,108 @@ impl App {
         }
 
         self.status_message = Some("Request duplicated".to_string());
+    }
+
+    fn start_move_item(&mut self) {
+        if let Some((item_type, item_id, item_name)) = self.get_selected_item_info() {
+            // Don't allow moving collections
+            if item_type == ItemType::Collection {
+                self.status_message = Some("Cannot move collections".to_string());
+                return;
+            }
+            self.pending_move = Some(PendingMove {
+                item_id,
+                item_type,
+                item_name: item_name.clone(),
+                source_collection_index: self.selected_collection,
+            });
+            self.status_message = Some(format!("Moving: {} - navigate to destination, Enter to move, Esc to cancel", item_name));
+        }
+    }
+
+    fn execute_pending_move(&mut self) {
+        let pending = match self.pending_move.take() {
+            Some(p) => p,
+            None => return,
+        };
+
+        // Determine the destination
+        let dest_collection_index = self.selected_collection;
+        let dest_folder_id = self.get_destination_folder_id();
+
+        // Check if trying to move to the same location
+        let source_folder_id = {
+            let source_collection = match self.collections.get(pending.source_collection_index) {
+                Some(c) => c,
+                None => {
+                    self.error_message = Some("Source collection not found".to_string());
+                    return;
+                }
+            };
+            Self::find_parent_folder_recursive(&source_collection.items, &pending.item_id)
+        };
+
+        // If same collection and same folder, it's a no-op
+        if pending.source_collection_index == dest_collection_index && source_folder_id == dest_folder_id {
+            self.status_message = Some("Item already in this location".to_string());
+            return;
+        }
+
+        // Extract item from source collection
+        let item = {
+            let source_collection = match self.collections.get_mut(pending.source_collection_index) {
+                Some(c) => c,
+                None => {
+                    self.error_message = Some("Source collection not found".to_string());
+                    return;
+                }
+            };
+            match source_collection.extract_item(&pending.item_id) {
+                Some(item) => item,
+                None => {
+                    self.error_message = Some("Item not found in source collection".to_string());
+                    return;
+                }
+            }
+        };
+
+        // Insert into destination
+        let dest_collection = match self.collections.get_mut(dest_collection_index) {
+            Some(c) => c,
+            None => {
+                self.error_message = Some("Destination collection not found".to_string());
+                return;
+            }
+        };
+
+        if dest_collection.insert_item(item, dest_folder_id.as_deref()) {
+            self.status_message = Some(format!("Moved: {}", pending.item_name));
+            // Save both collections
+            let _ = self.save();
+        } else {
+            self.error_message = Some("Failed to move item to destination".to_string());
+        }
+    }
+
+    /// Get the folder ID to insert into based on current selection
+    fn get_destination_folder_id(&self) -> Option<String> {
+        let collection = self.collections.get(self.selected_collection)?;
+
+        // If collection header is selected (usize::MAX), insert at root
+        if self.is_collection_header_selected() {
+            return None;
+        }
+
+        let flattened = collection.flatten();
+        let (_, item) = flattened.get(self.selected_item)?;
+
+        // If selected item is a folder, move into it
+        if item.is_folder() {
+            Some(item.id().to_string())
+        } else {
+            // If selected item is a request, move to its parent folder (or root)
+            Self::find_parent_folder_recursive(&collection.items, item.id())
+        }
     }
 
     fn find_parent_folder_id(&self, item_id: &str) -> Option<String> {
@@ -2074,6 +2210,7 @@ impl App {
                         help.push(("F", "Create folder"));
                         help.push(("r", "Create request"));
                         help.push(("p", "Duplicate request"));
+                        help.push(("m", "Move item (cut/paste)"));
                         help.push(("R", "Rename selected"));
                         help.push(("d", "Delete selected item"));
                         help.push(("D", "Delete collection"));

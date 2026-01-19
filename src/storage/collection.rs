@@ -61,6 +61,9 @@ pub struct Collection {
     pub items: Vec<CollectionItem>,
     #[serde(skip)]
     pub expanded: bool,
+    /// Path this collection was loaded from (for deletion)
+    #[serde(skip)]
+    pub source_path: Option<std::path::PathBuf>,
 }
 
 impl Collection {
@@ -70,6 +73,7 @@ impl Collection {
             name: name.into(),
             items: Vec::new(),
             expanded: true,
+            source_path: None,
         }
     }
 
@@ -78,6 +82,7 @@ impl Collection {
         let content = std::fs::read_to_string(path)?;
         let mut collection: Collection = serde_json::from_str(&content)?;
         collection.expanded = true;
+        collection.source_path = Some(path.to_path_buf());
         Ok(collection)
     }
 
@@ -240,6 +245,53 @@ impl Collection {
         for item in items {
             if let CollectionItem::Folder { items: folder_items, .. } = item {
                 if Self::delete_item_recursive(folder_items, item_id) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Extract (remove and return) an item by ID
+    pub fn extract_item(&mut self, item_id: &str) -> Option<CollectionItem> {
+        Self::extract_item_recursive(&mut self.items, item_id)
+    }
+
+    fn extract_item_recursive(items: &mut Vec<CollectionItem>, item_id: &str) -> Option<CollectionItem> {
+        // First check if item is at this level
+        if let Some(pos) = items.iter().position(|item| item.id() == item_id) {
+            return Some(items.remove(pos));
+        }
+        // Otherwise search in subfolders
+        for item in items {
+            if let CollectionItem::Folder { items: folder_items, .. } = item {
+                if let Some(extracted) = Self::extract_item_recursive(folder_items, item_id) {
+                    return Some(extracted);
+                }
+            }
+        }
+        None
+    }
+
+    /// Insert an item at a specific location (folder or root if folder_id is None)
+    pub fn insert_item(&mut self, item: CollectionItem, folder_id: Option<&str>) -> bool {
+        match folder_id {
+            None => {
+                self.items.push(item);
+                true
+            }
+            Some(id) => Self::insert_item_to_folder(&mut self.items, item, id),
+        }
+    }
+
+    fn insert_item_to_folder(items: &mut [CollectionItem], item: CollectionItem, folder_id: &str) -> bool {
+        for existing in items {
+            if let CollectionItem::Folder { id, items: folder_items, .. } = existing {
+                if id == folder_id {
+                    folder_items.push(item);
+                    return true;
+                }
+                if Self::insert_item_to_folder(folder_items, item.clone(), folder_id) {
                     return true;
                 }
             }
