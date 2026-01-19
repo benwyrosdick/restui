@@ -17,6 +17,14 @@ A terminal-based API testing tool built with Rust and Ratatui. Similar to Postma
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew install benwyrosdick/tap/restui
+```
+
+### From Source
+
 ```bash
 cargo build --release
 ./target/release/restui
