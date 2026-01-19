@@ -176,6 +176,9 @@ pub struct App {
     // Help popup
     pub show_help: bool,
 
+    // Selected param index for navigation in Params tab
+    pub selected_param_index: usize,
+
     // Dialog state
     pub dialog: DialogState,
 
@@ -232,6 +235,7 @@ impl App {
             error_message: None,
             response_scroll: 0,
             show_help: false,
+            selected_param_index: 0,
             dialog: DialogState::default(),
             layout_areas: LayoutAreas::default(),
         })
@@ -540,6 +544,24 @@ impl App {
                 }
             }
 
+            // Toggle param enabled/disabled
+            KeyCode::Char('t') => {
+                if self.focused_panel == FocusedPanel::RequestEditor
+                    && self.request_tab == RequestTab::Params
+                {
+                    self.toggle_selected_param();
+                }
+            }
+
+            // Delete selected param
+            KeyCode::Char('x') => {
+                if self.focused_panel == FocusedPanel::RequestEditor
+                    && self.request_tab == RequestTab::Params
+                {
+                    self.delete_selected_param();
+                }
+            }
+
             // Help popup
             KeyCode::Char('?') => {
                 self.show_help = true;
@@ -838,6 +860,9 @@ impl App {
             FocusedPanel::ResponseView => {
                 self.response_scroll = self.response_scroll.saturating_sub(1);
             }
+            FocusedPanel::RequestEditor if self.request_tab == RequestTab::Params => {
+                self.selected_param_index = self.selected_param_index.saturating_sub(1);
+            }
             _ => {}
         }
     }
@@ -854,6 +879,10 @@ impl App {
             }
             FocusedPanel::ResponseView => {
                 self.response_scroll = self.response_scroll.saturating_add(1);
+            }
+            FocusedPanel::RequestEditor if self.request_tab == RequestTab::Params => {
+                let max = self.current_request.query_params.len().saturating_sub(1);
+                self.selected_param_index = (self.selected_param_index + 1).min(max);
             }
             _ => {}
         }
@@ -921,6 +950,7 @@ impl App {
                     if let Some(entry) = self.history.entries.get(self.selected_history) {
                         self.current_request = entry.request.clone();
                         self.response = None;
+                        self.selected_param_index = 0;
                         self.focused_panel = FocusedPanel::UrlBar;
                     }
                 } else {
@@ -1045,6 +1075,7 @@ impl App {
                     self.current_request = req.clone();
                     self.current_request_source = Some((self.selected_collection, req.id.clone()));
                     self.response = None;
+                    self.selected_param_index = 0;
                 }
             }
         }
@@ -1061,9 +1092,28 @@ impl App {
         self.current_request = ApiRequest::default();
         self.current_request_source = None;
         self.response = None;
+        self.selected_param_index = 0;
         self.focused_panel = FocusedPanel::UrlBar;
         self.input_mode = InputMode::Editing;
         self.set_editing_field(EditingField::Url);
+    }
+
+    fn toggle_selected_param(&mut self) {
+        if let Some(param) = self.current_request.query_params.get_mut(self.selected_param_index) {
+            param.enabled = !param.enabled;
+        }
+    }
+
+    fn delete_selected_param(&mut self) {
+        if self.selected_param_index < self.current_request.query_params.len() {
+            self.current_request.query_params.remove(self.selected_param_index);
+            // Adjust selection if needed
+            if self.selected_param_index >= self.current_request.query_params.len()
+                && self.selected_param_index > 0
+            {
+                self.selected_param_index -= 1;
+            }
+        }
     }
 
     fn reload_environments(&mut self) {
@@ -1677,6 +1727,10 @@ impl App {
                             }
                             RequestTab::Params => {
                                 help.push(("", "── Params Tab ──"));
+                                help.push(("j / ↓", "Select next param"));
+                                help.push(("k / ↑", "Select previous param"));
+                                help.push(("t", "Toggle param on/off"));
+                                help.push(("x", "Delete selected param"));
                                 help.push(("Enter", "Edit params (Tab to next field)"));
                             }
                         }

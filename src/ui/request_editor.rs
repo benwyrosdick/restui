@@ -375,8 +375,12 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
 fn draw_params(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let mut lines: Vec<Line> = Vec::new();
+    let is_focused = app.focused_panel == FocusedPanel::RequestEditor
+        && app.request_tab == RequestTab::Params
+        && app.input_mode == InputMode::Normal;
 
     for (i, param) in app.current_request.query_params.iter().enumerate() {
+        let is_selected = is_focused && i == app.selected_param_index;
         let enabled_indicator = if param.enabled { "●" } else { "○" };
 
         let is_editing_key = app.input_mode == InputMode::Editing
@@ -384,16 +388,23 @@ fn draw_params(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         let is_editing_value = app.input_mode == InputMode::Editing
             && app.editing_field == Some(EditingField::ParamValue(i));
 
-        let mut spans = vec![
-            Span::styled(
-                format!("{} ", enabled_indicator),
-                Style::default().fg(if param.enabled {
-                    Color::Green
-                } else {
-                    Color::DarkGray
-                }),
-            ),
-        ];
+        let mut spans = vec![];
+
+        // Selection indicator
+        if is_selected {
+            spans.push(Span::styled("> ", Style::default().fg(accent)));
+        } else {
+            spans.push(Span::raw("  "));
+        }
+
+        spans.push(Span::styled(
+            format!("{} ", enabled_indicator),
+            Style::default().fg(if param.enabled {
+                Color::Green
+            } else {
+                Color::DarkGray
+            }),
+        ));
 
         spans.extend(text_with_cursor(
             &param.key,
