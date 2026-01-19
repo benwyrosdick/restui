@@ -34,9 +34,15 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     let mut items: Vec<ListItem> = Vec::new();
 
     for (col_idx, collection) in app.collections.iter().enumerate() {
-        // Collection header
+        // Collection header - selected when this collection is selected AND header is selected (usize::MAX)
+        let is_header_selected = col_idx == app.selected_collection && app.is_collection_header_selected();
         let prefix = if collection.expanded { "▼ " } else { "▶ " };
-        let style = if col_idx == app.selected_collection {
+        let style = if is_header_selected {
+            Style::default()
+                .fg(Color::Black)
+                .bg(accent)
+                .add_modifier(Modifier::BOLD)
+        } else if col_idx == app.selected_collection {
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
@@ -50,6 +56,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         if collection.expanded {
             for (item_idx, (depth, item)) in collection.flatten().into_iter().enumerate() {
                 let is_selected = col_idx == app.selected_collection
+                    && !app.is_collection_header_selected()
                     && item_idx == app.selected_item;
 
                 let indent = "  ".repeat(depth + 1);

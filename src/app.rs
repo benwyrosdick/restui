@@ -233,7 +233,7 @@ impl App {
             editing_field: None,
             cursor_position: 0,
             selected_collection: 0,
-            selected_item: 0,
+            selected_item: usize::MAX, // usize::MAX means collection header is selected
             selected_history: 0,
             show_history: false,
             current_request: ApiRequest::default(),
@@ -362,9 +362,9 @@ impl App {
                     for (col_idx, collection) in self.collections.iter().enumerate() {
                         // Collection header row
                         if visual_row == relative_y {
-                            // Clicked on collection header - select it and toggle expand
+                            // Clicked on collection header - select it
                             self.selected_collection = col_idx;
-                            self.selected_item = 0;
+                            self.selected_item = usize::MAX; // Header selected
                             return;
                         }
                         visual_row += 1;
@@ -1050,28 +1050,56 @@ impl App {
         }
     }
 
+    /// Check if collection header is selected (usize::MAX means header selected)
+    pub fn is_collection_header_selected(&self) -> bool {
+        self.selected_item == usize::MAX
+    }
+
     fn navigate_collection_up(&mut self) {
         if self.collections.is_empty() {
             return;
         }
 
-        if self.selected_item > 0 {
-            // Move up within current collection
-            self.selected_item -= 1;
-        } else if self.selected_collection > 0 {
-            // Move to previous collection
-            self.selected_collection -= 1;
-            // Select last item in previous collection (or 0 if collapsed/empty)
-            if let Some(col) = self.collections.get(self.selected_collection) {
-                if col.expanded {
-                    let count = col.flatten().len();
-                    self.selected_item = count.saturating_sub(1);
-                } else {
-                    self.selected_item = 0;
+        let col = match self.collections.get(self.selected_collection) {
+            Some(c) => c,
+            None => return,
+        };
+
+        if col.expanded {
+            if self.selected_item == usize::MAX {
+                // Already on header, move to previous collection's last item
+                if self.selected_collection > 0 {
+                    self.selected_collection -= 1;
+                    if let Some(prev_col) = self.collections.get(self.selected_collection) {
+                        if prev_col.expanded {
+                            let count = prev_col.flatten().len();
+                            self.selected_item = if count > 0 { count - 1 } else { usize::MAX };
+                        } else {
+                            self.selected_item = usize::MAX;
+                        }
+                    }
+                }
+            } else if self.selected_item == 0 {
+                // On first item, move to collection header
+                self.selected_item = usize::MAX;
+            } else {
+                // Move up within items
+                self.selected_item -= 1;
+            }
+        } else {
+            // Collapsed collection - header is the only option, move to previous collection
+            if self.selected_collection > 0 {
+                self.selected_collection -= 1;
+                if let Some(prev_col) = self.collections.get(self.selected_collection) {
+                    if prev_col.expanded {
+                        let count = prev_col.flatten().len();
+                        self.selected_item = if count > 0 { count - 1 } else { usize::MAX };
+                    } else {
+                        self.selected_item = usize::MAX;
+                    }
                 }
             }
         }
-        // else: already at top of first collection, do nothing
     }
 
     fn navigate_collection_down(&mut self) {
@@ -1079,17 +1107,36 @@ impl App {
             return;
         }
 
-        let current_max = self.get_visible_items_count().saturating_sub(1);
+        let col = match self.collections.get(self.selected_collection) {
+            Some(c) => c,
+            None => return,
+        };
 
-        if self.selected_item < current_max {
-            // Move down within current collection
-            self.selected_item += 1;
-        } else if self.selected_collection < self.collections.len() - 1 {
-            // Move to next collection
-            self.selected_collection += 1;
-            self.selected_item = 0;
+        if col.expanded {
+            let item_count = col.flatten().len();
+            if self.selected_item == usize::MAX {
+                // On header, move to first item (or next collection if no items)
+                if item_count > 0 {
+                    self.selected_item = 0;
+                } else if self.selected_collection < self.collections.len() - 1 {
+                    self.selected_collection += 1;
+                    self.selected_item = usize::MAX;
+                }
+            } else if self.selected_item < item_count.saturating_sub(1) {
+                // Move down within items
+                self.selected_item += 1;
+            } else if self.selected_collection < self.collections.len() - 1 {
+                // At last item, move to next collection header
+                self.selected_collection += 1;
+                self.selected_item = usize::MAX;
+            }
+        } else {
+            // Collapsed collection - move to next collection
+            if self.selected_collection < self.collections.len() - 1 {
+                self.selected_collection += 1;
+                self.selected_item = usize::MAX;
+            }
         }
-        // else: already at bottom of last collection, do nothing
     }
 
     fn navigate_left(&mut self) {
@@ -1256,7 +1303,7 @@ impl App {
     fn get_visible_items_count(&self) -> usize {
         self.collections
             .get(self.selected_collection)
-            .map(|c| c.flatten().len())
+            .map(|c| if c.expanded { c.flatten().len() } else { 0 })
             .unwrap_or(0)
     }
 
@@ -1311,10 +1358,19 @@ impl App {
     fn reload_environments(&mut self) {
         let path = &self.config.environments_file;
         let exists = path.exists();
+        // Remember current active environment name
+        let current_env_name = self.environments.active_name().to_string();
+
         match EnvironmentManager::load(path) {
-            Ok(env_manager) => {
+            Ok(mut env_manager) => {
                 let count = env_manager.environments.len();
                 let names: Vec<_> = env_manager.environments.iter().map(|e| e.name.clone()).collect();
+
+                // Try to restore the previously active environment by name
+                if let Some(idx) = env_manager.environments.iter().position(|e| e.name == current_env_name) {
+                    env_manager.set_active(idx);
+                }
+
                 self.environments = env_manager;
                 self.status_message = Some(format!(
                     "Loaded {} [{}] from {:?} (exists={})",
@@ -1703,7 +1759,7 @@ impl App {
                     if self.selected_collection >= self.collections.len() && !self.collections.is_empty() {
                         self.selected_collection = self.collections.len() - 1;
                     }
-                    self.selected_item = 0;
+                    self.selected_item = usize::MAX; // Select header of remaining collection
                     self.status_message = Some(format!("Deleted collection: {}", name));
 
                     // Delete the collection file from disk
@@ -1714,10 +1770,12 @@ impl App {
             ItemType::Folder | ItemType::Request => {
                 if let Some(collection) = self.collections.get_mut(collection_index) {
                     collection.delete_item(&item_id);
-                    // Adjust selected_item if needed
-                    let max = self.get_visible_items_count().saturating_sub(1);
-                    if self.selected_item > max {
-                        self.selected_item = max;
+                    // Adjust selected_item if needed (but not if header is selected)
+                    if self.selected_item != usize::MAX {
+                        let max = self.get_visible_items_count().saturating_sub(1);
+                        if self.selected_item > max {
+                            self.selected_item = if max == usize::MAX { usize::MAX } else { max };
+                        }
                     }
                     self.status_message = Some("Item deleted".to_string());
                 }
@@ -1876,9 +1934,15 @@ impl App {
             None => return,
         };
 
+        // If collection is collapsed, toggle it open
+        if !collection.expanded {
+            collection.expanded = true;
+            return;
+        }
+
         let flattened = collection.flatten();
 
-        // If no items or selected_item is 0, toggle the collection itself
+        // If no items or selected_item is out of range, toggle the collection itself
         if flattened.is_empty() || self.selected_item >= flattened.len() {
             collection.expanded = !collection.expanded;
             return;
@@ -1891,8 +1955,14 @@ impl App {
                 // Need to toggle the folder's expanded state
                 Self::toggle_folder_expanded(&mut collection.items, &folder_id);
             } else {
-                // Selected item is a request, toggle the collection
-                collection.expanded = !collection.expanded;
+                // Selected item is a request - find parent folder and collapse that
+                let item_id = item.id().to_string();
+                if let Some(parent_folder_id) = Self::find_parent_folder_recursive(&collection.items, &item_id) {
+                    Self::toggle_folder_expanded(&mut collection.items, &parent_folder_id);
+                } else {
+                    // No parent folder, request is at root level - toggle the collection
+                    collection.expanded = !collection.expanded;
+                }
             }
         }
     }

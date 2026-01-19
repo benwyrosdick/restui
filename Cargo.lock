@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "restui"
-version = "0.1.2"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "base64",
