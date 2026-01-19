@@ -728,24 +728,22 @@ impl App {
             }
 
             // CRUD operations (only in RequestList panel)
+            // Uppercase = Create: C (collection), F (folder), R (request)
+            // Lowercase = Actions: r (rename), d (delete), p (duplicate), m (move)
             KeyCode::Char('C') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_create_collection();
             }
             KeyCode::Char('F') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_create_folder();
             }
-            KeyCode::Char('r') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+            KeyCode::Char('R') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
                 self.start_create_request();
             }
-            KeyCode::Char('R') if self.focused_panel == FocusedPanel::RequestList => {
+            KeyCode::Char('r') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_rename_item();
             }
             KeyCode::Char('d') | KeyCode::Delete if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_delete_item();
-            }
-            // Delete collection with D
-            KeyCode::Char('D') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
-                self.start_delete_collection();
             }
             // Duplicate request with p
             KeyCode::Char('p') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
@@ -2205,15 +2203,15 @@ impl App {
                         help.push(("Space", "Toggle expand/collapse"));
                         help.push(("H", "Toggle history view"));
                         help.push(("n", "New request (in editor)"));
-                        help.push(("", "── Collection CRUD ──"));
+                        help.push(("", "── Create (uppercase) ──"));
                         help.push(("C", "Create collection"));
                         help.push(("F", "Create folder"));
-                        help.push(("r", "Create request"));
+                        help.push(("R", "Create request"));
+                        help.push(("", "── Actions (lowercase) ──"));
+                        help.push(("r", "Rename selected"));
+                        help.push(("d", "Delete selected"));
                         help.push(("p", "Duplicate request"));
                         help.push(("m", "Move item (cut/paste)"));
-                        help.push(("R", "Rename selected"));
-                        help.push(("d", "Delete selected item"));
-                        help.push(("D", "Delete collection"));
                     }
                     FocusedPanel::UrlBar => {
                         help.push(("", "── URL Bar ──"));
