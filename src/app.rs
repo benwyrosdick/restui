@@ -6,6 +6,7 @@ use crate::storage::{
 };
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use graphql_parser::query::parse_query;
 use ratatui::style::Color;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -1237,12 +1238,12 @@ impl App {
                 self.copy_response();
             }
 
-            // Format JSON body
+            // Format JSON/GraphQL body
             KeyCode::Char('f')
                 if self.focused_panel == FocusedPanel::RequestEditor
                     && self.request_tab == RequestTab::Body =>
             {
-                self.format_body_json();
+                self.format_body();
             }
 
             // CRUD operations (only in RequestList panel)
@@ -2121,6 +2122,14 @@ impl App {
         }
     }
 
+    fn format_body(&mut self) {
+        if self.is_graphql_body() {
+            self.format_body_graphql();
+        } else {
+            self.format_body_json();
+        }
+    }
+
     fn format_body_json(&mut self) {
         let body = &self.current_request.body;
         if body.trim().is_empty() {
@@ -2140,6 +2149,47 @@ impl App {
             Err(e) => {
                 self.error_message = Some(format!("Invalid JSON: {}", e));
             }
+        }
+    }
+
+    fn format_body_graphql(&mut self) {
+        let body = &self.current_request.body;
+        if body.trim().is_empty() {
+            return;
+        }
+
+        match parse_query::<String>(body) {
+            Ok(document) => {
+                let formatted = format!("{}", document);
+                self.current_request.body = formatted;
+                self.status_message = Some("Formatted GraphQL".to_string());
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Invalid GraphQL: {}", e));
+            }
+        }
+    }
+
+    fn is_graphql_body(&self) -> bool {
+        self.current_request.headers.iter().any(|header| {
+            if !header.enabled {
+                return false;
+            }
+            if !header.key.eq_ignore_ascii_case("content-type") {
+                return false;
+            }
+            header
+                .value
+                .to_ascii_lowercase()
+                .contains("application/graphql")
+        })
+    }
+
+    pub fn body_format_label(&self) -> &'static str {
+        if self.is_graphql_body() {
+            "GraphQL"
+        } else {
+            "JSON"
         }
     }
 
@@ -3061,7 +3111,7 @@ impl App {
                             RequestTab::Body => {
                                 help.push(("", "── Body Tab ──"));
                                 help.push(("Enter", "Edit request body"));
-                                help.push(("f", "Format JSON"));
+                                help.push(("f", "Format JSON/GraphQL"));
                             }
                             RequestTab::Auth => {
                                 help.push(("", "── Auth Tab ──"));

@@ -223,7 +223,7 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
         } else {
             Style::default().fg(Color::DarkGray)
         })
-        .title(" Body (JSON) ");
+        .title(format!(" Body ({}) ", app.body_format_label()));
 
     // Store inner area for click-to-cursor positioning
     let inner_area = block.inner(area);

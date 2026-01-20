@@ -48,6 +48,7 @@ cargo build --release
 | `s` | Send request |
 | `m` | Cycle HTTP method |
 | `n` | New request |
+| `f` | Format body (JSON/GraphQL) |
 | `e` | Switch environment |
 | `E` | Reload environments from file |
 | `Ctrl+e` | Edit env variables |
