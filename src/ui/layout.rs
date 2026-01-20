@@ -136,7 +136,14 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     // Show status or error message
-    let message = if let Some(err) = &app.error_message {
+    let message = if app.is_loading {
+        Span::styled(
+            format!(" Sending request {} ", app.spinner_frame()),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )
+    } else if let Some(err) = &app.error_message {
         Span::styled(format!(" {} ", err), Style::default().fg(Color::Red))
     } else if let Some(status) = &app.status_message {
         Span::styled(

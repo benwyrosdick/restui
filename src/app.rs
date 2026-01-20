@@ -9,6 +9,9 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tokio::sync::oneshot;
+use tokio::sync::oneshot::error::TryRecvError;
 
 /// Which panel is currently focused
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -223,6 +226,10 @@ pub struct App {
     // Response state
     pub response: Option<HttpResponse>,
     pub is_loading: bool,
+    pub spinner_index: usize,
+    pub spinner_last_tick: Instant,
+    pub pending_request: Option<oneshot::Receiver<Result<HttpResponse>>>,
+    pub pending_request_snapshot: Option<ApiRequest>,
 
     // Status/error message
     pub status_message: Option<String>,
@@ -304,6 +311,10 @@ impl App {
             current_request_source: None,
             response: None,
             is_loading: false,
+            spinner_index: 0,
+            spinner_last_tick: Instant::now(),
+            pending_request: None,
+            pending_request_snapshot: None,
             status_message: None,
             error_message: None,
             response_scroll: 0,
@@ -2272,21 +2283,40 @@ impl App {
             return Ok(());
         }
 
+        if self.is_loading {
+            return Ok(());
+        }
+
         self.is_loading = true;
         self.status_message = Some("Sending request...".to_string());
 
+        let request = self.current_request.clone();
+        let http_client = self.http_client.clone();
         let env_manager = self.environments.clone();
-        let interpolate = move |s: &str| env_manager.interpolate(s);
+        let (sender, receiver) = oneshot::channel();
+        self.pending_request_snapshot = Some(request.clone());
 
-        match self
-            .http_client
-            .execute(&self.current_request, interpolate)
-            .await
-        {
+        tokio::spawn(async move {
+            let interpolate = move |s: &str| env_manager.interpolate(s);
+            let result = http_client.execute(&request, interpolate).await;
+            let _ = sender.send(result);
+        });
+
+        self.pending_request = Some(receiver);
+        Ok(())
+    }
+
+    fn finish_request(&mut self, result: Result<HttpResponse>) {
+        let request_snapshot = self
+            .pending_request_snapshot
+            .clone()
+            .unwrap_or_else(|| self.current_request.clone());
+
+        match result {
             Ok(response) => {
                 // Add to history
                 let history_entry = HistoryEntry::new(
-                    self.current_request.clone(),
+                    request_snapshot,
                     Some(response.status),
                     response.duration_ms,
                 );
@@ -2298,10 +2328,11 @@ impl App {
                 ));
                 self.response = Some(response);
                 self.response_scroll = 0;
+                self.error_message = None;
             }
             Err(e) => {
                 // Add failed request to history
-                let history_entry = HistoryEntry::new(self.current_request.clone(), None, 0);
+                let history_entry = HistoryEntry::new(request_snapshot, None, 0);
                 self.history.add(history_entry);
 
                 self.error_message = Some(format!("Request failed: {}", e));
@@ -2309,8 +2340,8 @@ impl App {
             }
         }
 
+        self.pending_request_snapshot = None;
         self.is_loading = false;
-        Ok(())
     }
 
     pub fn set_error(&mut self, msg: String) {
@@ -2319,8 +2350,42 @@ impl App {
 
     /// Called periodically to process async tasks
     pub async fn tick(&mut self) -> Result<()> {
-        // Placeholder for any background async operations
+        if self.is_loading {
+            if self.spinner_last_tick.elapsed() >= Duration::from_millis(120) {
+                self.spinner_index = (self.spinner_index + 1) % Self::spinner_frames().len();
+                self.spinner_last_tick = Instant::now();
+            }
+        } else {
+            self.spinner_index = 0;
+            self.spinner_last_tick = Instant::now();
+        }
+
+        if let Some(receiver) = &mut self.pending_request {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    self.pending_request = None;
+                    self.finish_request(result);
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Closed) => {
+                    self.pending_request = None;
+                    self.pending_request_snapshot = None;
+                    self.is_loading = false;
+                    self.error_message = Some("Request cancelled".to_string());
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    pub fn spinner_frame(&self) -> &'static str {
+        let frames = Self::spinner_frames();
+        frames[self.spinner_index % frames.len()]
+    }
+
+    fn spinner_frames() -> &'static [&'static str] {
+        &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
     }
 
     /// Handle key input when a dialog is showing

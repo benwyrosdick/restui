@@ -32,6 +32,7 @@ impl HttpResponse {
 }
 
 /// HTTP client wrapper
+#[derive(Clone)]
 pub struct HttpClient {
     client: Client,
 }

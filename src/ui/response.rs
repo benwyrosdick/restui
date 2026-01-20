@@ -17,7 +17,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(block, area);
 
     if app.is_loading {
-        draw_loading(frame, inner_area);
+        draw_loading(frame, app, inner_area);
         return;
     }
 
@@ -43,8 +43,8 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn draw_loading(frame: &mut Frame, area: Rect) {
-    let loading = Paragraph::new("Sending request...").style(
+fn draw_loading(frame: &mut Frame, app: &App, area: Rect) {
+    let loading = Paragraph::new(format!("Sending request {}", app.spinner_frame())).style(
         Style::default()
             .fg(Color::Yellow)
             .add_modifier(Modifier::BOLD),
