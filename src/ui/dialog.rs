@@ -16,7 +16,11 @@ pub fn draw_dialog(frame: &mut Frame, app: &App) {
     let accent = app.accent_color();
 
     match dialog_type {
-        DialogType::ConfirmDelete { item_type, item_name, .. } => {
+        DialogType::ConfirmDelete {
+            item_type,
+            item_name,
+            ..
+        } => {
             draw_confirm_dialog(frame, item_type, item_name, accent);
         }
         _ => {
@@ -156,9 +160,7 @@ fn draw_confirm_dialog(frame: &mut Frame, item_type: &ItemType, item_name: &str,
     let footer = Paragraph::new(Line::from(vec![
         Span::styled(
             "y",
-            Style::default()
-                .fg(Color::Red)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
         ),
         Span::raw(": delete  "),
         Span::styled("n/Esc", Style::default().fg(accent)),

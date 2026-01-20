@@ -44,8 +44,11 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_loading(frame: &mut Frame, area: Rect) {
-    let loading = Paragraph::new("Sending request...")
-        .style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    let loading = Paragraph::new("Sending request...").style(
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    );
     frame.render_widget(loading, area);
 }
 
@@ -82,7 +85,13 @@ fn draw_status(frame: &mut Frame, response: &crate::http::HttpResponse, area: Re
     frame.render_widget(para, area);
 }
 
-fn draw_body(frame: &mut Frame, app: &App, response: &crate::http::HttpResponse, area: Rect, _accent: Color) {
+fn draw_body(
+    frame: &mut Frame,
+    app: &App,
+    response: &crate::http::HttpResponse,
+    area: Rect,
+    _accent: Color,
+) {
     let pretty_body = response.pretty_body();
     let lines: Vec<Line> = pretty_body
         .lines()
@@ -116,11 +125,7 @@ fn draw_body(frame: &mut Frame, app: &App, response: &crate::http::HttpResponse,
         let mut scrollbar_state =
             ScrollbarState::new(total_lines as usize).position(app.response_scroll as usize);
 
-        frame.render_stateful_widget(
-            scrollbar,
-            area,
-            &mut scrollbar_state,
-        );
+        frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
 }
 

@@ -38,9 +38,7 @@ pub struct HttpClient {
 
 impl HttpClient {
     pub fn new() -> Result<Self> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
+        let client = Client::builder().timeout(Duration::from_secs(30)).build()?;
         Ok(Self { client })
     }
 
@@ -74,10 +72,7 @@ impl HttpClient {
         // Add headers
         for header in &request.headers {
             if header.enabled && !header.key.is_empty() {
-                builder = builder.header(
-                    interpolate(&header.key),
-                    interpolate(&header.value),
-                );
+                builder = builder.header(interpolate(&header.key), interpolate(&header.value));
             }
         }
 
@@ -98,7 +93,11 @@ impl HttpClient {
 
         // Parse response
         let status = response.status().as_u16();
-        let status_text = response.status().canonical_reason().unwrap_or("").to_string();
+        let status_text = response
+            .status()
+            .canonical_reason()
+            .unwrap_or("")
+            .to_string();
         let headers: Vec<(String, String)> = response
             .headers()
             .iter()

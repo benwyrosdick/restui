@@ -96,7 +96,12 @@ impl AuthType {
     }
 
     pub fn all() -> &'static [AuthType] {
-        &[AuthType::None, AuthType::Bearer, AuthType::Basic, AuthType::ApiKey]
+        &[
+            AuthType::None,
+            AuthType::Bearer,
+            AuthType::Basic,
+            AuthType::ApiKey,
+        ]
     }
 
     pub fn next(&self) -> AuthType {
@@ -169,7 +174,8 @@ impl ApiRequest {
             format!("{} {}", self.method, self.name)
         } else {
             // Extract path from URL
-            let path = self.url
+            let path = self
+                .url
                 .split("://")
                 .nth(1)
                 .and_then(|s| s.split('/').skip(1).next())

@@ -123,10 +123,25 @@ pub enum ItemType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialogType {
     CreateCollection,
-    CreateFolder { parent_collection: usize, parent_folder_id: Option<String> },
-    CreateRequest { parent_collection: usize, parent_folder_id: Option<String> },
-    RenameItem { item_type: ItemType, item_id: String, collection_index: usize },
-    ConfirmDelete { item_type: ItemType, item_id: String, item_name: String, collection_index: usize },
+    CreateFolder {
+        parent_collection: usize,
+        parent_folder_id: Option<String>,
+    },
+    CreateRequest {
+        parent_collection: usize,
+        parent_folder_id: Option<String>,
+    },
+    RenameItem {
+        item_type: ItemType,
+        item_id: String,
+        collection_index: usize,
+    },
+    ConfirmDelete {
+        item_type: ItemType,
+        item_id: String,
+        item_name: String,
+        collection_index: usize,
+    },
 }
 
 /// Dialog state for input dialogs
@@ -206,16 +221,16 @@ pub struct App {
 /// Stores the layout areas for mouse click detection
 #[derive(Debug, Clone, Default)]
 pub struct LayoutAreas {
-    pub request_list: Option<(u16, u16, u16, u16)>,  // x, y, width, height
+    pub request_list: Option<(u16, u16, u16, u16)>, // x, y, width, height
     pub url_bar: Option<(u16, u16, u16, u16)>,
     pub request_editor: Option<(u16, u16, u16, u16)>,
     pub response_view: Option<(u16, u16, u16, u16)>,
-    pub tabs_row_y: Option<u16>,  // y-coordinate of the tabs row
-    pub tab_positions: Vec<(u16, u16, RequestTab)>,  // x, width, tab
+    pub tabs_row_y: Option<u16>, // y-coordinate of the tabs row
+    pub tab_positions: Vec<(u16, u16, RequestTab)>, // x, width, tab
     // Text field positions for click-to-cursor (x where text starts, y, width)
     pub url_text_start: Option<u16>,
-    pub body_area: Option<(u16, u16, u16, u16)>,  // x, y, width, height for body text area
-    pub request_content_area: Option<(u16, u16, u16, u16)>,  // content area below tabs
+    pub body_area: Option<(u16, u16, u16, u16)>, // x, y, width, height for body text area
+    pub request_content_area: Option<(u16, u16, u16, u16)>, // content area below tabs
 }
 
 impl App {
@@ -225,8 +240,8 @@ impl App {
 
         // Load existing data or create defaults
         let history = HistoryManager::load(&config.history_file).unwrap_or_default();
-        let environments =
-            EnvironmentManager::load(&config.environments_file).unwrap_or_else(|_| EnvironmentManager::new());
+        let environments = EnvironmentManager::load(&config.environments_file)
+            .unwrap_or_else(|_| EnvironmentManager::new());
 
         // Load collections from the collections directory
         let collections = Self::load_collections(&config.collections_dir)?;
@@ -453,7 +468,8 @@ impl App {
                                         self.editing_field = Some(EditingField::Body);
 
                                         // Account for scroll offset when calculating clicked row
-                                        let click_row = (y - by) as usize + self.body_scroll as usize;
+                                        let click_row =
+                                            (y - by) as usize + self.body_scroll as usize;
                                         let click_col = (x - bx) as usize;
 
                                         let body = &self.current_request.body;
@@ -545,7 +561,8 @@ impl App {
 
     /// Get the accent color based on the active environment (defaults to Cyan)
     pub fn accent_color(&self) -> Color {
-        self.environments.active_color()
+        self.environments
+            .active_color()
             .map(|s| Self::parse_color(s))
             .unwrap_or(Color::Cyan)
     }
@@ -721,8 +738,9 @@ impl App {
             }
 
             // Format JSON body
-            KeyCode::Char('f') if self.focused_panel == FocusedPanel::RequestEditor
-                && self.request_tab == RequestTab::Body =>
+            KeyCode::Char('f')
+                if self.focused_panel == FocusedPanel::RequestEditor
+                    && self.request_tab == RequestTab::Body =>
             {
                 self.format_body_json();
             }
@@ -736,25 +754,35 @@ impl App {
             KeyCode::Char('F') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_create_folder();
             }
-            KeyCode::Char('R') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+            KeyCode::Char('R')
+                if self.focused_panel == FocusedPanel::RequestList && !self.show_history =>
+            {
                 self.start_create_request();
             }
             KeyCode::Char('r') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_rename_item();
             }
-            KeyCode::Char('d') | KeyCode::Delete if self.focused_panel == FocusedPanel::RequestList => {
+            KeyCode::Char('d') | KeyCode::Delete
+                if self.focused_panel == FocusedPanel::RequestList =>
+            {
                 self.start_delete_item();
             }
             // Duplicate request with p
-            KeyCode::Char('p') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+            KeyCode::Char('p')
+                if self.focused_panel == FocusedPanel::RequestList && !self.show_history =>
+            {
                 self.duplicate_selected_request();
             }
             // Toggle expand/collapse with space
-            KeyCode::Char(' ') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+            KeyCode::Char(' ')
+                if self.focused_panel == FocusedPanel::RequestList && !self.show_history =>
+            {
                 self.toggle_expand_collapse();
             }
             // Move item with m
-            KeyCode::Char('m') if self.focused_panel == FocusedPanel::RequestList && !self.show_history => {
+            KeyCode::Char('m')
+                if self.focused_panel == FocusedPanel::RequestList && !self.show_history =>
+            {
                 self.start_move_item();
             }
 
@@ -821,10 +849,24 @@ impl App {
         match field {
             EditingField::Url => Some(&mut self.current_request.url),
             EditingField::Body => Some(&mut self.current_request.body),
-            EditingField::HeaderKey(i) => self.current_request.headers.get_mut(i).map(|h| &mut h.key),
-            EditingField::HeaderValue(i) => self.current_request.headers.get_mut(i).map(|h| &mut h.value),
-            EditingField::ParamKey(i) => self.current_request.query_params.get_mut(i).map(|p| &mut p.key),
-            EditingField::ParamValue(i) => self.current_request.query_params.get_mut(i).map(|p| &mut p.value),
+            EditingField::HeaderKey(i) => {
+                self.current_request.headers.get_mut(i).map(|h| &mut h.key)
+            }
+            EditingField::HeaderValue(i) => self
+                .current_request
+                .headers
+                .get_mut(i)
+                .map(|h| &mut h.value),
+            EditingField::ParamKey(i) => self
+                .current_request
+                .query_params
+                .get_mut(i)
+                .map(|p| &mut p.key),
+            EditingField::ParamValue(i) => self
+                .current_request
+                .query_params
+                .get_mut(i)
+                .map(|p| &mut p.value),
             EditingField::AuthBearerToken => Some(&mut self.current_request.auth.bearer_token),
             EditingField::AuthBasicUsername => Some(&mut self.current_request.auth.basic_username),
             EditingField::AuthBasicPassword => Some(&mut self.current_request.auth.basic_password),
@@ -835,14 +877,36 @@ impl App {
 
     /// Get current field text length
     fn get_current_field_len(&self) -> usize {
-        let Some(field) = &self.editing_field else { return 0 };
+        let Some(field) = &self.editing_field else {
+            return 0;
+        };
         match field {
             EditingField::Url => self.current_request.url.len(),
             EditingField::Body => self.current_request.body.len(),
-            EditingField::HeaderKey(i) => self.current_request.headers.get(*i).map(|h| h.key.len()).unwrap_or(0),
-            EditingField::HeaderValue(i) => self.current_request.headers.get(*i).map(|h| h.value.len()).unwrap_or(0),
-            EditingField::ParamKey(i) => self.current_request.query_params.get(*i).map(|p| p.key.len()).unwrap_or(0),
-            EditingField::ParamValue(i) => self.current_request.query_params.get(*i).map(|p| p.value.len()).unwrap_or(0),
+            EditingField::HeaderKey(i) => self
+                .current_request
+                .headers
+                .get(*i)
+                .map(|h| h.key.len())
+                .unwrap_or(0),
+            EditingField::HeaderValue(i) => self
+                .current_request
+                .headers
+                .get(*i)
+                .map(|h| h.value.len())
+                .unwrap_or(0),
+            EditingField::ParamKey(i) => self
+                .current_request
+                .query_params
+                .get(*i)
+                .map(|p| p.key.len())
+                .unwrap_or(0),
+            EditingField::ParamValue(i) => self
+                .current_request
+                .query_params
+                .get(*i)
+                .map(|p| p.value.len())
+                .unwrap_or(0),
             EditingField::AuthBearerToken => self.current_request.auth.bearer_token.len(),
             EditingField::AuthBasicUsername => self.current_request.auth.basic_username.len(),
             EditingField::AuthBasicPassword => self.current_request.auth.basic_password.len(),
@@ -856,11 +920,13 @@ impl App {
         if cursor_pos > 0 {
             if let Some(text) = self.get_current_field_mut() {
                 // Remove character before cursor
-                let byte_pos = text.char_indices()
+                let byte_pos = text
+                    .char_indices()
                     .nth(cursor_pos - 1)
                     .map(|(i, _)| i)
                     .unwrap_or(0);
-                let next_byte_pos = text.char_indices()
+                let next_byte_pos = text
+                    .char_indices()
                     .nth(cursor_pos)
                     .map(|(i, _)| i)
                     .unwrap_or(text.len());
@@ -876,11 +942,13 @@ impl App {
         if cursor_pos < len {
             if let Some(text) = self.get_current_field_mut() {
                 // Remove character at cursor
-                let byte_pos = text.char_indices()
+                let byte_pos = text
+                    .char_indices()
                     .nth(cursor_pos)
                     .map(|(i, _)| i)
                     .unwrap_or(text.len());
-                let next_byte_pos = text.char_indices()
+                let next_byte_pos = text
+                    .char_indices()
                     .nth(cursor_pos + 1)
                     .map(|(i, _)| i)
                     .unwrap_or(text.len());
@@ -893,7 +961,8 @@ impl App {
         let cursor_pos = self.cursor_position;
         if let Some(text) = self.get_current_field_mut() {
             // Insert character at cursor position
-            let byte_pos = text.char_indices()
+            let byte_pos = text
+                .char_indices()
                 .nth(cursor_pos)
                 .map(|(i, _)| i)
                 .unwrap_or(text.len());
@@ -946,7 +1015,10 @@ impl App {
 
         // Find previous line
         let prev_line_end = current_line_start - 1; // position of '\n'
-        let prev_line_start = body[..prev_line_end].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let prev_line_start = body[..prev_line_end]
+            .rfind('\n')
+            .map(|i| i + 1)
+            .unwrap_or(0);
         let prev_line_len = prev_line_end - prev_line_start;
 
         // Move to same column on previous line (or end of line if shorter)
@@ -969,12 +1041,14 @@ impl App {
         let col = cursor_pos - current_line_start;
 
         // Find next line
-        let Some(next_line_start) = body[cursor_pos..].find('\n').map(|i| cursor_pos + i + 1) else {
+        let Some(next_line_start) = body[cursor_pos..].find('\n').map(|i| cursor_pos + i + 1)
+        else {
             return; // No next line
         };
 
         // Find end of next line
-        let next_line_end = body[next_line_start..].find('\n')
+        let next_line_end = body[next_line_start..]
+            .find('\n')
             .map(|i| next_line_start + i)
             .unwrap_or(body.len());
         let next_line_len = next_line_end - next_line_start;
@@ -1003,7 +1077,9 @@ impl App {
         let cursor_line = body[..cursor_pos].matches('\n').count();
 
         // Get visible height from layout (default to 10 if not set)
-        let visible_height = self.layout_areas.body_area
+        let visible_height = self
+            .layout_areas
+            .body_area
             .map(|(_, _, _, h)| h as usize)
             .unwrap_or(10);
 
@@ -1223,32 +1299,38 @@ impl App {
             RequestTab::Headers => {
                 if self.current_request.headers.is_empty() {
                     // Add a new header if none exist
-                    self.current_request.headers.push(crate::storage::KeyValue::new("", ""));
+                    self.current_request
+                        .headers
+                        .push(crate::storage::KeyValue::new("", ""));
                     self.selected_header_index = 0;
                 }
                 // Start editing the selected header
-                let idx = self.selected_header_index.min(self.current_request.headers.len().saturating_sub(1));
+                let idx = self
+                    .selected_header_index
+                    .min(self.current_request.headers.len().saturating_sub(1));
                 EditingField::HeaderKey(idx)
             }
             RequestTab::Body => EditingField::Body,
-            RequestTab::Auth => {
-                match self.current_request.auth.auth_type {
-                    crate::storage::AuthType::None => {
-                        self.status_message = Some("Select auth type first with 'a' key".to_string());
-                        EditingField::Url
-                    }
-                    crate::storage::AuthType::Bearer => EditingField::AuthBearerToken,
-                    crate::storage::AuthType::Basic => EditingField::AuthBasicUsername,
-                    crate::storage::AuthType::ApiKey => EditingField::AuthApiKeyName,
+            RequestTab::Auth => match self.current_request.auth.auth_type {
+                crate::storage::AuthType::None => {
+                    self.status_message = Some("Select auth type first with 'a' key".to_string());
+                    EditingField::Url
                 }
-            }
+                crate::storage::AuthType::Bearer => EditingField::AuthBearerToken,
+                crate::storage::AuthType::Basic => EditingField::AuthBasicUsername,
+                crate::storage::AuthType::ApiKey => EditingField::AuthApiKeyName,
+            },
             RequestTab::Params => {
                 if self.current_request.query_params.is_empty() {
-                    self.current_request.query_params.push(crate::storage::KeyValue::new("", ""));
+                    self.current_request
+                        .query_params
+                        .push(crate::storage::KeyValue::new("", ""));
                     self.selected_param_index = 0;
                 }
                 // Start editing the selected param
-                let idx = self.selected_param_index.min(self.current_request.query_params.len().saturating_sub(1));
+                let idx = self
+                    .selected_param_index
+                    .min(self.current_request.query_params.len().saturating_sub(1));
                 EditingField::ParamKey(idx)
             }
         }
@@ -1267,21 +1349,23 @@ impl App {
                     EditingField::HeaderKey(next_idx)
                 } else {
                     // Add new header and edit it
-                    self.current_request.headers.push(crate::storage::KeyValue::new("", ""));
+                    self.current_request
+                        .headers
+                        .push(crate::storage::KeyValue::new("", ""));
                     EditingField::HeaderKey(next_idx)
                 }
             }
             // Params: key -> value -> next key -> next value -> ...
-            (Some(EditingField::ParamKey(i)), RequestTab::Params) => {
-                EditingField::ParamValue(*i)
-            }
+            (Some(EditingField::ParamKey(i)), RequestTab::Params) => EditingField::ParamValue(*i),
             (Some(EditingField::ParamValue(i)), RequestTab::Params) => {
                 let next_idx = i + 1;
                 if next_idx < self.current_request.query_params.len() {
                     EditingField::ParamKey(next_idx)
                 } else {
                     // Add new param and edit it
-                    self.current_request.query_params.push(crate::storage::KeyValue::new("", ""));
+                    self.current_request
+                        .query_params
+                        .push(crate::storage::KeyValue::new("", ""));
                     EditingField::ParamKey(next_idx)
                 }
             }
@@ -1295,12 +1379,8 @@ impl App {
             (Some(EditingField::AuthBasicPassword), RequestTab::Auth) => {
                 EditingField::AuthBasicUsername
             }
-            (Some(EditingField::AuthApiKeyName), RequestTab::Auth) => {
-                EditingField::AuthApiKeyValue
-            }
-            (Some(EditingField::AuthApiKeyValue), RequestTab::Auth) => {
-                EditingField::AuthApiKeyName
-            }
+            (Some(EditingField::AuthApiKeyName), RequestTab::Auth) => EditingField::AuthApiKeyValue,
+            (Some(EditingField::AuthApiKeyValue), RequestTab::Auth) => EditingField::AuthApiKeyName,
             // Body: stay on body
             (Some(EditingField::Body), RequestTab::Body) => EditingField::Body,
             // URL stays on URL
@@ -1347,14 +1427,20 @@ impl App {
     }
 
     fn toggle_selected_param(&mut self) {
-        if let Some(param) = self.current_request.query_params.get_mut(self.selected_param_index) {
+        if let Some(param) = self
+            .current_request
+            .query_params
+            .get_mut(self.selected_param_index)
+        {
             param.enabled = !param.enabled;
         }
     }
 
     fn delete_selected_param(&mut self) {
         if self.selected_param_index < self.current_request.query_params.len() {
-            self.current_request.query_params.remove(self.selected_param_index);
+            self.current_request
+                .query_params
+                .remove(self.selected_param_index);
             // Adjust selection if needed
             if self.selected_param_index >= self.current_request.query_params.len()
                 && self.selected_param_index > 0
@@ -1365,14 +1451,20 @@ impl App {
     }
 
     fn toggle_selected_header(&mut self) {
-        if let Some(header) = self.current_request.headers.get_mut(self.selected_header_index) {
+        if let Some(header) = self
+            .current_request
+            .headers
+            .get_mut(self.selected_header_index)
+        {
             header.enabled = !header.enabled;
         }
     }
 
     fn delete_selected_header(&mut self) {
         if self.selected_header_index < self.current_request.headers.len() {
-            self.current_request.headers.remove(self.selected_header_index);
+            self.current_request
+                .headers
+                .remove(self.selected_header_index);
             // Adjust selection if needed
             if self.selected_header_index >= self.current_request.headers.len()
                 && self.selected_header_index > 0
@@ -1391,10 +1483,18 @@ impl App {
         match EnvironmentManager::load(path) {
             Ok(mut env_manager) => {
                 let count = env_manager.environments.len();
-                let names: Vec<_> = env_manager.environments.iter().map(|e| e.name.clone()).collect();
+                let names: Vec<_> = env_manager
+                    .environments
+                    .iter()
+                    .map(|e| e.name.clone())
+                    .collect();
 
                 // Try to restore the previously active environment by name
-                if let Some(idx) = env_manager.environments.iter().position(|e| e.name == current_env_name) {
+                if let Some(idx) = env_manager
+                    .environments
+                    .iter()
+                    .position(|e| e.name == current_env_name)
+                {
                     env_manager.set_active(idx);
                 }
 
@@ -1492,17 +1592,15 @@ impl App {
         }
 
         match serde_json::from_str::<serde_json::Value>(body) {
-            Ok(parsed) => {
-                match serde_json::to_string_pretty(&parsed) {
-                    Ok(formatted) => {
-                        self.current_request.body = formatted;
-                        self.status_message = Some("Formatted JSON".to_string());
-                    }
-                    Err(e) => {
-                        self.error_message = Some(format!("Failed to format: {}", e));
-                    }
+            Ok(parsed) => match serde_json::to_string_pretty(&parsed) {
+                Ok(formatted) => {
+                    self.current_request.body = formatted;
+                    self.status_message = Some("Formatted JSON".to_string());
                 }
-            }
+                Err(e) => {
+                    self.error_message = Some(format!("Failed to format: {}", e));
+                }
+            },
             Err(e) => {
                 self.error_message = Some(format!("Invalid JSON: {}", e));
             }
@@ -1533,17 +1631,27 @@ impl App {
         // Auth
         match self.current_request.auth.auth_type {
             crate::storage::AuthType::Bearer => {
-                let token = self.environments.interpolate(&self.current_request.auth.bearer_token);
+                let token = self
+                    .environments
+                    .interpolate(&self.current_request.auth.bearer_token);
                 parts.push(format!("-H 'Authorization: Bearer {}'", token));
             }
             crate::storage::AuthType::Basic => {
-                let user = self.environments.interpolate(&self.current_request.auth.basic_username);
-                let pass = self.environments.interpolate(&self.current_request.auth.basic_password);
+                let user = self
+                    .environments
+                    .interpolate(&self.current_request.auth.basic_username);
+                let pass = self
+                    .environments
+                    .interpolate(&self.current_request.auth.basic_password);
                 parts.push(format!("-u '{}:{}'", user, pass));
             }
             crate::storage::AuthType::ApiKey => {
-                let name = self.environments.interpolate(&self.current_request.auth.api_key_name);
-                let value = self.environments.interpolate(&self.current_request.auth.api_key_value);
+                let name = self
+                    .environments
+                    .interpolate(&self.current_request.auth.api_key_name);
+                let value = self
+                    .environments
+                    .interpolate(&self.current_request.auth.api_key_value);
                 if self.current_request.auth.api_key_location == "header" {
                     parts.push(format!("-H '{}: {}'", name, value));
                 }
@@ -1562,7 +1670,9 @@ impl App {
 
         // Query params - build URL with params
         let mut full_url = url;
-        let enabled_params: Vec<_> = self.current_request.query_params
+        let enabled_params: Vec<_> = self
+            .current_request
+            .query_params
             .iter()
             .filter(|p| p.enabled && !p.key.is_empty())
             .collect();
@@ -1588,8 +1698,12 @@ impl App {
         if self.current_request.auth.auth_type == crate::storage::AuthType::ApiKey
             && self.current_request.auth.api_key_location == "query"
         {
-            let name = self.environments.interpolate(&self.current_request.auth.api_key_name);
-            let value = self.environments.interpolate(&self.current_request.auth.api_key_value);
+            let name = self
+                .environments
+                .interpolate(&self.current_request.auth.api_key_name);
+            let value = self
+                .environments
+                .interpolate(&self.current_request.auth.api_key_value);
             if full_url.contains('?') {
                 full_url = format!("{}&{}={}", full_url, name, value);
             } else {
@@ -1622,7 +1736,8 @@ impl App {
             }
         } else {
             // No source - this is a new request, prompt to save to collection
-            self.error_message = Some("Use 'r' in Request List to create a new saved request".to_string());
+            self.error_message =
+                Some("Use 'r' in Request List to create a new saved request".to_string());
         }
     }
 
@@ -1661,8 +1776,7 @@ impl App {
             }
             Err(e) => {
                 // Add failed request to history
-                let history_entry =
-                    HistoryEntry::new(self.current_request.clone(), None, 0);
+                let history_entry = HistoryEntry::new(self.current_request.clone(), None, 0);
                 self.history.add(history_entry);
 
                 self.error_message = Some(format!("Request failed: {}", e));
@@ -1691,18 +1805,21 @@ impl App {
         };
 
         match &dialog_type {
-            DialogType::ConfirmDelete { item_type, item_id, collection_index, .. } => {
-                match key.code {
-                    KeyCode::Char('y') | KeyCode::Char('Y') => {
-                        self.execute_delete(item_type.clone(), item_id.clone(), *collection_index);
-                        self.dialog = DialogState::default();
-                    }
-                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
-                        self.dialog = DialogState::default();
-                    }
-                    _ => {}
+            DialogType::ConfirmDelete {
+                item_type,
+                item_id,
+                collection_index,
+                ..
+            } => match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.execute_delete(item_type.clone(), item_id.clone(), *collection_index);
+                    self.dialog = DialogState::default();
                 }
-            }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                    self.dialog = DialogState::default();
+                }
+                _ => {}
+            },
             _ => {
                 // Input dialog handling
                 match key.code {
@@ -1739,35 +1856,43 @@ impl App {
                 self.collections.push(collection);
                 self.status_message = Some(format!("Created collection: {}", name));
             }
-            DialogType::CreateFolder { parent_collection, parent_folder_id } => {
+            DialogType::CreateFolder {
+                parent_collection,
+                parent_folder_id,
+            } => {
                 if let Some(collection) = self.collections.get_mut(parent_collection) {
                     collection.add_folder_to(&name, parent_folder_id.as_deref());
                     self.status_message = Some(format!("Created folder: {}", name));
                 }
             }
-            DialogType::CreateRequest { parent_collection, parent_folder_id } => {
+            DialogType::CreateRequest {
+                parent_collection,
+                parent_folder_id,
+            } => {
                 if let Some(collection) = self.collections.get_mut(parent_collection) {
                     let request = ApiRequest::new(&name);
                     collection.add_request_to(request, parent_folder_id.as_deref());
                     self.status_message = Some(format!("Created request: {}", name));
                 }
             }
-            DialogType::RenameItem { item_type, item_id, collection_index } => {
-                match item_type {
-                    ItemType::Collection => {
-                        if let Some(collection) = self.collections.get_mut(collection_index) {
-                            collection.rename(&name);
-                            self.status_message = Some(format!("Renamed to: {}", name));
-                        }
-                    }
-                    ItemType::Folder | ItemType::Request => {
-                        if let Some(collection) = self.collections.get_mut(collection_index) {
-                            collection.rename_item(&item_id, &name);
-                            self.status_message = Some(format!("Renamed to: {}", name));
-                        }
+            DialogType::RenameItem {
+                item_type,
+                item_id,
+                collection_index,
+            } => match item_type {
+                ItemType::Collection => {
+                    if let Some(collection) = self.collections.get_mut(collection_index) {
+                        collection.rename(&name);
+                        self.status_message = Some(format!("Renamed to: {}", name));
                     }
                 }
-            }
+                ItemType::Folder | ItemType::Request => {
+                    if let Some(collection) = self.collections.get_mut(collection_index) {
+                        collection.rename_item(&item_id, &name);
+                        self.status_message = Some(format!("Renamed to: {}", name));
+                    }
+                }
+            },
             DialogType::ConfirmDelete { .. } => unreachable!(),
         }
 
@@ -1784,7 +1909,9 @@ impl App {
                     self.collections.remove(collection_index);
 
                     // Adjust selected_collection if needed
-                    if self.selected_collection >= self.collections.len() && !self.collections.is_empty() {
+                    if self.selected_collection >= self.collections.len()
+                        && !self.collections.is_empty()
+                    {
                         self.selected_collection = self.collections.len() - 1;
                     }
                     self.selected_item = usize::MAX; // Select header of remaining collection
@@ -1946,7 +2073,10 @@ impl App {
                 item_name: item_name.clone(),
                 source_collection_index: self.selected_collection,
             });
-            self.status_message = Some(format!("Moving: {} - navigate to destination, Enter to move, Esc to cancel", item_name));
+            self.status_message = Some(format!(
+                "Moving: {} - navigate to destination, Enter to move, Esc to cancel",
+                item_name
+            ));
         }
     }
 
@@ -1973,14 +2103,17 @@ impl App {
         };
 
         // If same collection and same folder, it's a no-op
-        if pending.source_collection_index == dest_collection_index && source_folder_id == dest_folder_id {
+        if pending.source_collection_index == dest_collection_index
+            && source_folder_id == dest_folder_id
+        {
             self.status_message = Some("Item already in this location".to_string());
             return;
         }
 
         // Extract item from source collection
         let item = {
-            let source_collection = match self.collections.get_mut(pending.source_collection_index) {
+            let source_collection = match self.collections.get_mut(pending.source_collection_index)
+            {
                 Some(c) => c,
                 None => {
                     self.error_message = Some("Source collection not found".to_string());
@@ -2042,7 +2175,12 @@ impl App {
 
     fn find_parent_folder_recursive(items: &[CollectionItem], item_id: &str) -> Option<String> {
         for item in items {
-            if let CollectionItem::Folder { id, items: folder_items, .. } = item {
+            if let CollectionItem::Folder {
+                id,
+                items: folder_items,
+                ..
+            } = item
+            {
                 // Check if the item is directly in this folder
                 for child in folder_items {
                     if child.id() == item_id {
@@ -2091,7 +2229,9 @@ impl App {
             } else {
                 // Selected item is a request - find parent folder and collapse that
                 let item_id = item.id().to_string();
-                if let Some(parent_folder_id) = Self::find_parent_folder_recursive(&collection.items, &item_id) {
+                if let Some(parent_folder_id) =
+                    Self::find_parent_folder_recursive(&collection.items, &item_id)
+                {
                     Self::toggle_folder_expanded(&mut collection.items, &parent_folder_id);
                 } else {
                     // No parent folder, request is at root level - toggle the collection
@@ -2103,7 +2243,13 @@ impl App {
 
     fn toggle_folder_expanded(items: &mut [CollectionItem], folder_id: &str) -> bool {
         for item in items {
-            if let CollectionItem::Folder { id, expanded, items: sub_items, .. } = item {
+            if let CollectionItem::Folder {
+                id,
+                expanded,
+                items: sub_items,
+                ..
+            } = item
+            {
                 if id == folder_id {
                     *expanded = !*expanded;
                     return true;
@@ -2146,7 +2292,11 @@ impl App {
             Some((item_type, item.id().to_string(), item.name().to_string()))
         } else {
             // No items in collection - allow operations on the collection itself
-            Some((ItemType::Collection, collection.id.clone(), collection.name.clone()))
+            Some((
+                ItemType::Collection,
+                collection.id.clone(),
+                collection.name.clone(),
+            ))
         }
     }
 

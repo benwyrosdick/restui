@@ -121,6 +121,10 @@ Create `~/.config/restui/environments.json`:
 ```json
 {
   "active_index": 0,
+  "shared": {
+    "api_version": "v1",
+    "company_id": "acme"
+  },
   "environments": [
     {
       "name": "development",
@@ -135,7 +139,8 @@ Create `~/.config/restui/environments.json`:
       "color": "red",
       "variables": {
         "base_url": "https://api.example.com",
-        "api_token": "prod-token-456"
+        "api_token": "prod-token-456",
+        "company_id": "acme-prod"
       }
     }
   ]

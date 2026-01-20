@@ -117,7 +117,10 @@ impl Collection {
     ) {
         for item in items {
             result.push((depth, item));
-            if let CollectionItem::Folder { items, expanded, .. } = item {
+            if let CollectionItem::Folder {
+                items, expanded, ..
+            } = item
+            {
                 if *expanded {
                     Self::flatten_items(items, depth + 1, result);
                 }
@@ -188,9 +191,18 @@ impl Collection {
         }
     }
 
-    fn add_request_to_folder(items: &mut [CollectionItem], request: ApiRequest, folder_id: &str) -> bool {
+    fn add_request_to_folder(
+        items: &mut [CollectionItem],
+        request: ApiRequest,
+        folder_id: &str,
+    ) -> bool {
         for item in items {
-            if let CollectionItem::Folder { id, items: folder_items, .. } = item {
+            if let CollectionItem::Folder {
+                id,
+                items: folder_items,
+                ..
+            } = item
+            {
                 if id == folder_id {
                     folder_items.push(CollectionItem::Request(request));
                     return true;
@@ -215,9 +227,18 @@ impl Collection {
         }
     }
 
-    fn add_folder_to_parent(items: &mut [CollectionItem], new_folder: CollectionItem, parent_id: &str) -> bool {
+    fn add_folder_to_parent(
+        items: &mut [CollectionItem],
+        new_folder: CollectionItem,
+        parent_id: &str,
+    ) -> bool {
         for item in items {
-            if let CollectionItem::Folder { id, items: folder_items, .. } = item {
+            if let CollectionItem::Folder {
+                id,
+                items: folder_items,
+                ..
+            } = item
+            {
                 if id == parent_id {
                     folder_items.push(new_folder);
                     return true;
@@ -243,7 +264,11 @@ impl Collection {
         }
         // Otherwise search in subfolders
         for item in items {
-            if let CollectionItem::Folder { items: folder_items, .. } = item {
+            if let CollectionItem::Folder {
+                items: folder_items,
+                ..
+            } = item
+            {
                 if Self::delete_item_recursive(folder_items, item_id) {
                     return true;
                 }
@@ -257,14 +282,21 @@ impl Collection {
         Self::extract_item_recursive(&mut self.items, item_id)
     }
 
-    fn extract_item_recursive(items: &mut Vec<CollectionItem>, item_id: &str) -> Option<CollectionItem> {
+    fn extract_item_recursive(
+        items: &mut Vec<CollectionItem>,
+        item_id: &str,
+    ) -> Option<CollectionItem> {
         // First check if item is at this level
         if let Some(pos) = items.iter().position(|item| item.id() == item_id) {
             return Some(items.remove(pos));
         }
         // Otherwise search in subfolders
         for item in items {
-            if let CollectionItem::Folder { items: folder_items, .. } = item {
+            if let CollectionItem::Folder {
+                items: folder_items,
+                ..
+            } = item
+            {
                 if let Some(extracted) = Self::extract_item_recursive(folder_items, item_id) {
                     return Some(extracted);
                 }
@@ -284,9 +316,18 @@ impl Collection {
         }
     }
 
-    fn insert_item_to_folder(items: &mut [CollectionItem], item: CollectionItem, folder_id: &str) -> bool {
+    fn insert_item_to_folder(
+        items: &mut [CollectionItem],
+        item: CollectionItem,
+        folder_id: &str,
+    ) -> bool {
         for existing in items {
-            if let CollectionItem::Folder { id, items: folder_items, .. } = existing {
+            if let CollectionItem::Folder {
+                id,
+                items: folder_items,
+                ..
+            } = existing
+            {
                 if id == folder_id {
                     folder_items.push(item);
                     return true;
@@ -304,18 +345,30 @@ impl Collection {
         Self::rename_item_recursive(&mut self.items, item_id, new_name.into())
     }
 
-    fn rename_item_recursive(items: &mut [CollectionItem], item_id: &str, new_name: String) -> bool {
+    fn rename_item_recursive(
+        items: &mut [CollectionItem],
+        item_id: &str,
+        new_name: String,
+    ) -> bool {
         for item in items {
             match item {
                 CollectionItem::Request(req) if req.id == item_id => {
                     req.name = new_name;
                     return true;
                 }
-                CollectionItem::Folder { id, name, items: folder_items, .. } if id == item_id => {
+                CollectionItem::Folder {
+                    id,
+                    name,
+                    items: folder_items,
+                    ..
+                } if id == item_id => {
                     *name = new_name;
                     return true;
                 }
-                CollectionItem::Folder { items: folder_items, .. } => {
+                CollectionItem::Folder {
+                    items: folder_items,
+                    ..
+                } => {
                     if Self::rename_item_recursive(folder_items, item_id, new_name.clone()) {
                         return true;
                     }

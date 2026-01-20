@@ -83,11 +83,20 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 
     // Left half: Dark gray background (matching footer) with "ResTUI" in white and version in purple
     let left_content = Line::from(vec![
-        Span::styled(" ResTUI ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("v{}", version), Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            " ResTUI ",
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("v{}", version),
+            Style::default()
+                .fg(Color::Magenta)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]);
-    let left_header = Paragraph::new(left_content)
-        .style(Style::default());
+    let left_header = Paragraph::new(left_content).style(Style::default());
     frame.render_widget(left_header, header_chunks[0]);
 
     // Right half: Dark gray background with environment name in accent color
@@ -95,7 +104,10 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
 
     let right_content = Line::from(vec![
         Span::styled("Env: ", Style::default().fg(Color::White)),
-        Span::styled(env_name, Style::default().fg(accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            env_name,
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" "),
     ]);
     let right_header = Paragraph::new(right_content)
@@ -125,10 +137,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     // Show status or error message
     let message = if let Some(err) = &app.error_message {
-        Span::styled(
-            format!(" {} ", err),
-            Style::default().fg(Color::Red),
-        )
+        Span::styled(format!(" {} ", err), Style::default().fg(Color::Red))
     } else if let Some(status) = &app.status_message {
         Span::styled(
             format!(" {} ", status),
@@ -139,8 +148,7 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     let footer_content = Line::from(vec![mode_indicator, message]);
-    let footer = Paragraph::new(footer_content)
-        .style(Style::default());
+    let footer = Paragraph::new(footer_content).style(Style::default());
 
     frame.render_widget(footer, area);
 }

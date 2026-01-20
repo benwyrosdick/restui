@@ -35,7 +35,8 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
     for (col_idx, collection) in app.collections.iter().enumerate() {
         // Collection header - selected when this collection is selected AND header is selected (usize::MAX)
-        let is_header_selected = col_idx == app.selected_collection && app.is_collection_header_selected();
+        let is_header_selected =
+            col_idx == app.selected_collection && app.is_collection_header_selected();
         let prefix = if collection.expanded { "▼ " } else { "▶ " };
         let style = if is_header_selected {
             Style::default()
@@ -43,7 +44,9 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 .bg(accent)
                 .add_modifier(Modifier::BOLD)
         } else if col_idx == app.selected_collection {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::White)
         };
@@ -169,8 +172,8 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         .collect();
 
     if items.is_empty() {
-        let placeholder = Paragraph::new("No history yet.")
-            .style(Style::default().fg(Color::DarkGray));
+        let placeholder =
+            Paragraph::new("No history yet.").style(Style::default().fg(Color::DarkGray));
         frame.render_widget(placeholder, area);
     } else {
         let list = List::new(items);

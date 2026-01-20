@@ -4,6 +4,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+fn interpolate_with_vars(vars: &HashMap<String, String>, input: &str) -> String {
+    let re = Regex::new(r"\{\{(\w+)\}\}").unwrap();
+    re.replace_all(input, |caps: &regex::Captures| {
+        let var_name = &caps[1];
+        vars.get(var_name)
+            .cloned()
+            .unwrap_or_else(|| format!("{{{{{}}}}}", var_name))
+    })
+    .into_owned()
+}
+
 /// An environment with variables
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Environment {
@@ -35,15 +46,7 @@ impl Environment {
 
     /// Interpolate variables in a string using {{variable}} syntax
     pub fn interpolate(&self, input: &str) -> String {
-        let re = Regex::new(r"\{\{(\w+)\}\}").unwrap();
-        re.replace_all(input, |caps: &regex::Captures| {
-            let var_name = &caps[1];
-            self.variables
-                .get(var_name)
-                .cloned()
-                .unwrap_or_else(|| format!("{{{{{}}}}}", var_name))
-        })
-        .into_owned()
+        interpolate_with_vars(&self.variables, input)
     }
 }
 
@@ -56,6 +59,8 @@ impl Default for Environment {
 /// Manager for multiple environments
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EnvironmentManager {
+    #[serde(default)]
+    pub shared: HashMap<String, String>,
     pub environments: Vec<Environment>,
     pub active_index: Option<usize>,
 }
@@ -63,6 +68,7 @@ pub struct EnvironmentManager {
 impl EnvironmentManager {
     pub fn new() -> Self {
         let mut manager = Self {
+            shared: HashMap::new(),
             environments: Vec::new(),
             active_index: None,
         };
@@ -115,9 +121,16 @@ impl EnvironmentManager {
 
     /// Interpolate a string using the active environment
     pub fn interpolate(&self, input: &str) -> String {
-        self.active()
-            .map(|env| env.interpolate(input))
-            .unwrap_or_else(|| input.to_string())
+        match self.active() {
+            Some(env) => {
+                let mut combined = self.shared.clone();
+                for (key, value) in &env.variables {
+                    combined.insert(key.clone(), value.clone());
+                }
+                interpolate_with_vars(&combined, input)
+            }
+            None => interpolate_with_vars(&self.shared, input),
+        }
     }
 
     /// Cycle to the next environment

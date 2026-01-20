@@ -9,7 +9,10 @@ mod ui;
 use anyhow::Result;
 use app::App;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, MouseButton, MouseEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, MouseButton,
+        MouseEventKind,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -113,20 +116,18 @@ async fn run_app(
                         }
                     }
                 }
-                Event::Mouse(mouse) => {
-                    match mouse.kind {
-                        MouseEventKind::Down(MouseButton::Left) => {
-                            app.handle_mouse_click(mouse.column, mouse.row);
-                        }
-                        MouseEventKind::ScrollUp => {
-                            app.handle_scroll(mouse.column, mouse.row, true);
-                        }
-                        MouseEventKind::ScrollDown => {
-                            app.handle_scroll(mouse.column, mouse.row, false);
-                        }
-                        _ => {}
+                Event::Mouse(mouse) => match mouse.kind {
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        app.handle_mouse_click(mouse.column, mouse.row);
                     }
-                }
+                    MouseEventKind::ScrollUp => {
+                        app.handle_scroll(mouse.column, mouse.row, true);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        app.handle_scroll(mouse.column, mouse.row, false);
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }

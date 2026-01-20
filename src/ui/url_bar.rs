@@ -9,8 +9,8 @@ use ratatui::{
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::UrlBar;
-    let is_editing = app.input_mode == InputMode::Editing
-        && app.editing_field == Some(EditingField::Url);
+    let is_editing =
+        app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Url);
 
     // Method color
     let method_color = match app.current_request.method {
@@ -27,7 +27,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         let cursor_pos = app.cursor_position.min(url_text.len());
         if url_text.is_empty() {
             // Empty text, show block cursor as a space
-            vec![Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black))]
+            vec![Span::styled(
+                " ",
+                Style::default().bg(Color::White).fg(Color::Black),
+            )]
         } else if cursor_pos >= url_text.len() {
             // Cursor at end, show block cursor after text
             vec![
@@ -42,7 +45,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             let after: String = chars.collect();
             vec![
                 Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
-                Span::styled(cursor_char.to_string(), Style::default().bg(Color::White).fg(Color::Black)),
+                Span::styled(
+                    cursor_char.to_string(),
+                    Style::default().bg(Color::White).fg(Color::Black),
+                ),
                 Span::styled(after, Style::default().bg(Color::DarkGray)),
             ]
         }

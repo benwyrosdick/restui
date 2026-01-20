@@ -47,9 +47,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
                 Line::from(vec![
                     Span::styled(
                         format!("{:>12}", key),
-                        Style::default()
-                            .fg(accent)
-                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(accent).add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  "),
                     Span::styled(*desc, Style::default().fg(Color::White)),
@@ -83,12 +81,10 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
         width: area.width,
         height: 1,
     };
-    let footer = Paragraph::new(Line::from(vec![
-        Span::styled(
-            " Press any key to close ",
-            Style::default().fg(Color::DarkGray),
-        ),
-    ]))
+    let footer = Paragraph::new(Line::from(vec![Span::styled(
+        " Press any key to close ",
+        Style::default().fg(Color::DarkGray),
+    )]))
     .alignment(Alignment::Center);
     frame.render_widget(footer, footer_area);
 }
