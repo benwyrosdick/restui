@@ -245,6 +245,10 @@ pub enum DialogType {
         item_name: String,
         collection_index: usize,
     },
+    SaveResponseAs,
+    ConfirmOverwrite {
+        path: PathBuf,
+    },
 }
 
 /// Dialog state for input dialogs
@@ -1368,8 +1372,13 @@ impl App {
             // Enter to select/edit
             KeyCode::Enter => self.handle_enter().await?,
 
-            // Send request
-            KeyCode::Char('s') | KeyCode::Char('S') => {
+            // Send request (lowercase 's' everywhere except RequestList, uppercase 'S' except ResponseView where it saves)
+            KeyCode::Char('s') => {
+                if self.focused_panel != FocusedPanel::RequestList {
+                    self.send_request().await?;
+                }
+            }
+            KeyCode::Char('S') if self.focused_panel != FocusedPanel::ResponseView => {
                 if self.focused_panel != FocusedPanel::RequestList {
                     self.send_request().await?;
                 }
@@ -1483,6 +1492,11 @@ impl App {
             // Copy response body to clipboard (in response view)
             KeyCode::Char('c') if self.focused_panel == FocusedPanel::ResponseView => {
                 self.copy_response();
+            }
+
+            // Save response to file (in response view)
+            KeyCode::Char('S') if self.focused_panel == FocusedPanel::ResponseView => {
+                self.start_save_response_dialog();
             }
 
             // Search in response (in response view)
@@ -2608,6 +2622,99 @@ impl App {
         }
     }
 
+    fn save_response_to_file(&mut self, path: &str) {
+        if self.response.is_none() {
+            self.error_message = Some("No response to save".to_string());
+            return;
+        }
+
+        // Expand ~ to home directory
+        let expanded_path = if path.starts_with("~/") {
+            if let Some(home) = dirs::home_dir() {
+                home.join(&path[2..])
+            } else {
+                PathBuf::from(path)
+            }
+        } else {
+            PathBuf::from(path)
+        };
+
+        // Check if file exists - if so, prompt for overwrite
+        if expanded_path.exists() {
+            self.dialog = DialogState {
+                dialog_type: Some(DialogType::ConfirmOverwrite {
+                    path: expanded_path,
+                }),
+                input_buffer: String::new(),
+            };
+            return;
+        }
+
+        self.write_response_to_path(&expanded_path);
+    }
+
+    fn write_response_to_path(&mut self, path: &PathBuf) {
+        let Some(response) = &self.response else {
+            self.error_message = Some("No response to save".to_string());
+            return;
+        };
+
+        // Use filtered content if active, otherwise use pretty body
+        let content = if let Some(filtered) = &self.response_filtered_content {
+            filtered.clone()
+        } else {
+            response.pretty_body()
+        };
+
+        match std::fs::write(path, &content) {
+            Ok(_) => {
+                let msg = if self.response_filtered_content.is_some() {
+                    format!("Saved filtered response to {}", path.display())
+                } else {
+                    format!("Saved response to {}", path.display())
+                };
+                self.status_message = Some(msg);
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Failed to save: {}", e));
+            }
+        }
+    }
+
+    fn save_response_with_increment(&mut self, original_path: &PathBuf) {
+        // Find next available filename by adding (n) before extension
+        let stem = original_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("response");
+        let extension = original_path
+            .extension()
+            .and_then(|s| s.to_str());
+        let parent = original_path.parent();
+
+        let mut counter = 1;
+        let new_path = loop {
+            let new_name = if let Some(ext) = extension {
+                format!("{}({}).{}", stem, counter, ext)
+            } else {
+                format!("{}({})", stem, counter)
+            };
+
+            let candidate = if let Some(p) = parent {
+                p.join(&new_name)
+            } else {
+                PathBuf::from(&new_name)
+            };
+
+            if !candidate.exists() {
+                break candidate;
+            }
+            counter += 1;
+        };
+
+        self.write_response_to_path(&new_path);
+    }
+
     fn format_body(&mut self) {
         if self.is_graphql_body() {
             self.format_body_graphql();
@@ -2954,6 +3061,22 @@ impl App {
                 }
                 _ => {}
             },
+            DialogType::ConfirmOverwrite { path } => match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    let path = path.clone();
+                    self.dialog = DialogState::default();
+                    self.write_response_to_path(&path);
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') => {
+                    let path = path.clone();
+                    self.dialog = DialogState::default();
+                    self.save_response_with_increment(&path);
+                }
+                KeyCode::Esc => {
+                    self.dialog = DialogState::default();
+                }
+                _ => {}
+            },
             _ => {
                 // Input dialog handling
                 match key.code {
@@ -3027,7 +3150,17 @@ impl App {
                     }
                 }
             },
-            DialogType::ConfirmDelete { .. } => unreachable!(),
+            DialogType::ConfirmDelete { .. } | DialogType::ConfirmOverwrite { .. } => {
+                unreachable!()
+            }
+            DialogType::SaveResponseAs => {
+                self.save_response_to_file(&name);
+                // save_response_to_file may set a new dialog (ConfirmOverwrite)
+                // so only clear if no new dialog was set
+                if self.dialog.dialog_type.is_some() {
+                    return;
+                }
+            }
         }
 
         self.dialog = DialogState::default();
@@ -3138,6 +3271,17 @@ impl App {
                 input_buffer: String::new(),
             };
         }
+    }
+
+    fn start_save_response_dialog(&mut self) {
+        if self.response.is_none() {
+            self.error_message = Some("No response to save".to_string());
+            return;
+        }
+        self.dialog = DialogState {
+            dialog_type: Some(DialogType::SaveResponseAs),
+            input_buffer: String::new(),
+        };
     }
 
     fn start_delete_collection(&mut self) {
@@ -3629,6 +3773,7 @@ impl App {
                         help.push(("j / ↓", "Scroll down"));
                         help.push(("k / ↑", "Scroll up"));
                         help.push(("c", "Copy response to clipboard"));
+                        help.push(("S", "Save response to file"));
                         help.push(("s", "Send request again"));
                         help.push(("/", "Search in response"));
                         help.push(("f", "JQ filter (e.g. .data, .[0])"));
