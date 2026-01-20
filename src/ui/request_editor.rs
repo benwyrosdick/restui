@@ -14,7 +14,13 @@ use super::widgets::text_with_cursor;
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestEditor;
     let accent = app.accent_color();
-    let block = bordered_block("Request", focused, accent);
+    let block = bordered_block(
+        "Request",
+        focused,
+        accent,
+        app.theme_surface_color(),
+        app.theme_muted_color(),
+    );
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
@@ -50,7 +56,7 @@ fn draw_tabs(frame: &mut Frame, app: &mut App, area: Rect, accent: Color) {
             let style = if *t == app.request_tab {
                 Style::default().fg(accent).add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(app.theme_muted_color())
             };
             Line::styled(t.as_str(), style)
         })
@@ -133,7 +139,7 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     if lines.is_empty() {
         lines.push(Line::from(Span::styled(
             "No headers. Press Enter to add.",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(app.theme_muted_color()),
         )));
     }
 
@@ -150,7 +156,7 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
     let lines: Vec<Line> = if body.is_empty() && !is_editing {
         vec![Line::from(Span::styled(
             "Enter request body...",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(app.theme_muted_color()),
         ))]
     } else if is_editing {
         // When editing, we need to show cursor at the right position across lines
@@ -221,8 +227,9 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
         .border_style(if is_editing {
             Style::default().fg(Color::Green)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(app.theme_muted_color())
         })
+        .style(Style::default().bg(app.theme_surface_color()))
         .title(format!(" Body ({}) ", app.body_format_label()));
 
     // Store inner area for click-to-cursor positioning
@@ -279,7 +286,7 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         AuthType::None => {
             lines.push(Line::from(Span::styled(
                 "No authentication configured.",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(app.theme_muted_color()),
             )));
         }
         AuthType::Bearer => {

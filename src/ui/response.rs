@@ -12,7 +12,13 @@ use super::layout::bordered_block;
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::ResponseView;
     let accent = app.accent_color();
-    let block = bordered_block("Response", focused, accent);
+    let block = bordered_block(
+        "Response",
+        focused,
+        accent,
+        app.theme_surface_color(),
+        app.theme_muted_color(),
+    );
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
@@ -30,14 +36,14 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
                 .split(inner_area);
 
             // Status line
-            draw_status(frame, response, chunks[0], accent);
+            draw_status(frame, app, response, chunks[0], accent);
 
             // Response body with syntax highlighting
             draw_body(frame, app, response, chunks[1], accent);
         }
         None => {
             let placeholder = Paragraph::new("No response yet. Send a request with 's'.")
-                .style(Style::default().fg(Color::DarkGray));
+                .style(Style::default().fg(app.theme_muted_color()));
             frame.render_widget(placeholder, inner_area);
         }
     }
@@ -52,7 +58,13 @@ fn draw_loading(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(loading, area);
 }
 
-fn draw_status(frame: &mut Frame, response: &crate::http::HttpResponse, area: Rect, accent: Color) {
+fn draw_status(
+    frame: &mut Frame,
+    app: &App,
+    response: &crate::http::HttpResponse,
+    area: Rect,
+    accent: Color,
+) {
     let status_color = if response.is_success() {
         Color::Green
     } else if response.status >= 400 {
@@ -77,7 +89,7 @@ fn draw_status(frame: &mut Frame, response: &crate::http::HttpResponse, area: Re
         Span::raw("  "),
         Span::styled(
             format_size(response.size_bytes),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(app.theme_muted_color()),
         ),
     ]);
 
@@ -111,7 +123,8 @@ fn draw_body(
         .block(
             Block::default()
                 .borders(Borders::TOP)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(app.theme_muted_color()))
+                .style(Style::default().bg(app.theme_surface_color())),
         );
 
     frame.render_widget(para, area);

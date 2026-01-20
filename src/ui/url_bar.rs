@@ -55,10 +55,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     } else if url_text.is_empty() {
         vec![Span::styled(
             "Enter URL... (press Enter or 'i' to edit)",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(app.theme_muted_color()),
         )]
     } else {
-        vec![Span::styled(url_text.clone(), Style::default())]
+        vec![Span::styled(
+            url_text.clone(),
+            Style::default().fg(app.theme_text_color()),
+        )]
     };
 
     // Build the URL line
@@ -82,18 +85,19 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     } else if focused {
         Style::default().fg(accent)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(app.theme_muted_color())
     };
 
     let title_style = if focused {
         Style::default().fg(accent).add_modifier(Modifier::BOLD)
     } else {
-        Style::default()
+        Style::default().fg(app.theme_muted_color())
     };
 
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(border_style)
+        .style(Style::default().bg(app.theme_surface_color()))
         .title(" URL ")
         .title_style(title_style);
 

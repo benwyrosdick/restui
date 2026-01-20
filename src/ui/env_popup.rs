@@ -64,7 +64,7 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
                 Span::styled(prefix, Style::default().fg(accent)),
                 Span::styled(
                     truncate_with_ellipsis(section.placeholder, content_width.saturating_sub(2)),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(app.theme_muted_color()),
                 ),
             ]));
         } else {
@@ -104,7 +104,7 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
                     app.cursor_position,
                     is_editing_value,
                     "value",
-                    Style::default().fg(Color::White),
+                    Style::default().fg(app.theme_text_color()),
                 ));
 
                 lines.push(Line::from(spans));
@@ -127,7 +127,7 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(accent))
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(app.theme_surface_color()));
 
     let env_text = Paragraph::new(lines)
         .block(env_block)
@@ -144,7 +144,7 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
     let footer_text = " Enter edit • Tab next • a add • x delete • Esc close ";
     let footer = Paragraph::new(Line::from(vec![Span::styled(
         truncate_with_ellipsis(footer_text, content_width),
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(app.theme_muted_color()),
     )]))
     .alignment(Alignment::Center);
     frame.render_widget(footer, footer_area);

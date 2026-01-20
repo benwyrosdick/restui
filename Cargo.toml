@@ -3,7 +3,7 @@ name = "restui"
 version = "0.1.6"
 edition = "2021"
 description = "A TUI API testing tool like Postman"
-authors = ["Your Name"]
+authors = ["Ben Wyrosdick"]
 license = "MIT"
 
 [dependencies]

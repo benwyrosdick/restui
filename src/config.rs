@@ -12,6 +12,8 @@ pub struct Config {
     pub history_file: PathBuf,
     /// Environments file path
     pub environments_file: PathBuf,
+    /// Settings file path
+    pub settings_file: PathBuf,
 }
 
 impl Config {
@@ -25,12 +27,14 @@ impl Config {
         let collections_dir = base_dir.join("collections");
         let history_file = base_dir.join("history.json");
         let environments_file = base_dir.join("environments.json");
+        let settings_file = base_dir.join("settings.json");
 
         Ok(Self {
             data_dir: base_dir,
             collections_dir,
             history_file,
             environments_file,
+            settings_file,
         })
     }
 

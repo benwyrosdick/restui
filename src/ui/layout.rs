@@ -81,29 +81,26 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(area);
 
-    // Left half: Dark gray background (matching footer) with "ResTUI" in white and version in purple
+    let theme = app.theme();
+    let accent = app.accent_color();
+
     let left_content = Line::from(vec![
         Span::styled(
             " ResTUI ",
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!("v{}", version),
             Style::default()
-                .fg(Color::Magenta)
+                .fg(theme.muted)
                 .add_modifier(Modifier::BOLD),
         ),
     ]);
-    let left_header = Paragraph::new(left_content).style(Style::default());
+    let left_header = Paragraph::new(left_content).style(Style::default().bg(theme.surface));
     frame.render_widget(left_header, header_chunks[0]);
 
-    // Right half: Dark gray background with environment name in accent color
-    let accent = app.accent_color();
-
     let right_content = Line::from(vec![
-        Span::styled("Env: ", Style::default().fg(Color::White)),
+        Span::styled("Env: ", Style::default().fg(theme.text)),
         Span::styled(
             env_name,
             Style::default().fg(accent).add_modifier(Modifier::BOLD),
@@ -111,7 +108,7 @@ fn draw_header(frame: &mut Frame, app: &App, area: Rect) {
         Span::raw(" "),
     ]);
     let right_header = Paragraph::new(right_content)
-        .style(Style::default())
+        .style(Style::default().bg(theme.surface))
         .alignment(ratatui::layout::Alignment::Right);
     frame.render_widget(right_header, header_chunks[1]);
 }
@@ -151,30 +148,41 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
             Style::default().fg(app.accent_color()),
         )
     } else {
-        Span::raw(" [S]end [N]ew [E]nv [H]istory [?]help | Tab:switch | q:quit ")
+        Span::styled(
+            " [S]end [N]ew [E]nv [T]heme [H]istory [?]help | Tab:switch | q:quit ",
+            Style::default().fg(app.theme_muted_color()),
+        )
     };
 
     let footer_content = Line::from(vec![mode_indicator, message]);
-    let footer = Paragraph::new(footer_content).style(Style::default());
+    let footer =
+        Paragraph::new(footer_content).style(Style::default().bg(app.theme_surface_color()));
 
     frame.render_widget(footer, area);
 }
 
 /// Helper to create a bordered block with focus indication
-pub fn bordered_block(title: &str, focused: bool, accent: Color) -> Block<'_> {
+pub fn bordered_block(
+    title: &str,
+    focused: bool,
+    accent: Color,
+    surface: Color,
+    muted: Color,
+) -> Block<'_> {
     let border_style = if focused {
         Style::default().fg(accent)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(muted)
     };
 
     Block::default()
         .borders(Borders::ALL)
         .border_style(border_style)
+        .style(Style::default().bg(surface))
         .title(format!(" {} ", title))
         .title_style(if focused {
             Style::default().fg(accent).add_modifier(Modifier::BOLD)
         } else {
-            Style::default()
+            Style::default().fg(muted)
         })
 }

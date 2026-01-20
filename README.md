@@ -52,6 +52,7 @@ cargo build --release
 | `e` | Switch environment |
 | `E` | Reload environments from file |
 | `Ctrl+e` | Edit env variables |
+| `Ctrl+t` | Select theme |
 | `H` | Toggle history view |
 | `y` | Copy request as curl command |
 | `W` / `Ctrl+s` | Save changes to collection |

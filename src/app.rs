@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::http::{HttpClient, HttpResponse};
 use crate::storage::{
     ApiRequest, Collection, CollectionItem, EnvironmentManager, HistoryEntry, HistoryManager,
-    HttpMethod, KeyValue,
+    HttpMethod, KeyValue, Settings,
 };
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -126,6 +126,85 @@ pub enum EnvPopupSection {
     Active,
 }
 
+#[derive(Debug, Clone)]
+pub struct Theme {
+    pub name: &'static str,
+    pub accent: Color,
+    pub background: Color,
+    pub surface: Color,
+    pub text: Color,
+    pub muted: Color,
+    pub selection_bg: Color,
+    pub selection_fg: Color,
+}
+
+impl Theme {
+    pub fn presets() -> Vec<Theme> {
+        vec![
+            Theme {
+                name: "Classic",
+                accent: Color::Cyan,
+                background: Color::Black,
+                surface: Color::Black,
+                text: Color::White,
+                muted: Color::DarkGray,
+                selection_bg: Color::Cyan,
+                selection_fg: Color::Black,
+            },
+            Theme {
+                name: "Solarized",
+                accent: Color::Rgb(38, 139, 210),
+                background: Color::Rgb(0, 43, 54),
+                surface: Color::Rgb(7, 54, 66),
+                text: Color::Rgb(238, 232, 213),
+                muted: Color::Rgb(147, 161, 161),
+                selection_bg: Color::Rgb(88, 110, 117),
+                selection_fg: Color::Rgb(238, 232, 213),
+            },
+            Theme {
+                name: "Dracula",
+                accent: Color::Rgb(189, 147, 249),
+                background: Color::Rgb(40, 42, 54),
+                surface: Color::Rgb(45, 47, 65),
+                text: Color::Rgb(248, 248, 242),
+                muted: Color::Rgb(98, 114, 164),
+                selection_bg: Color::Rgb(68, 71, 90),
+                selection_fg: Color::Rgb(248, 248, 242),
+            },
+            Theme {
+                name: "Nord",
+                accent: Color::Rgb(94, 129, 172),
+                background: Color::Rgb(46, 52, 64),
+                surface: Color::Rgb(59, 66, 82),
+                text: Color::Rgb(236, 239, 244),
+                muted: Color::Rgb(129, 161, 193),
+                selection_bg: Color::Rgb(76, 86, 106),
+                selection_fg: Color::Rgb(236, 239, 244),
+            },
+            Theme {
+                name: "Tokyo Night",
+                accent: Color::Rgb(122, 162, 247),
+                background: Color::Rgb(26, 27, 38),
+                surface: Color::Rgb(36, 40, 59),
+                text: Color::Rgb(192, 202, 245),
+                muted: Color::Rgb(86, 95, 137),
+                selection_bg: Color::Rgb(65, 79, 140),
+                selection_fg: Color::Rgb(241, 246, 255),
+            },
+            Theme {
+                name: "Hacker Green",
+                accent: Color::Rgb(80, 255, 120),
+                background: Color::Black,
+                surface: Color::Rgb(0, 24, 0),
+                text: Color::Rgb(120, 255, 140),
+                muted: Color::Rgb(64, 160, 80),
+                selection_bg: Color::Rgb(0, 110, 0),
+                selection_fg: Color::Rgb(210, 255, 220),
+            },
+        ]
+    }
+}
+
 /// Type of item being operated on
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ItemType {
@@ -189,6 +268,11 @@ impl Default for EnvPopupState {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ThemePopupState {
+    pub selected_index: usize,
+}
+
 /// State for a pending move operation
 #[derive(Debug, Clone)]
 pub struct PendingMove {
@@ -248,6 +332,10 @@ pub struct App {
     pub show_env_popup: bool,
     pub env_popup: EnvPopupState,
 
+    // Theme selector popup
+    pub show_theme_popup: bool,
+    pub theme_popup: ThemePopupState,
+
     // Selected param index for navigation in Params tab
     pub selected_param_index: usize,
     // Selected header index for navigation in Headers tab
@@ -255,12 +343,11 @@ pub struct App {
 
     // Dialog state
     pub dialog: DialogState,
-
-    // Layout areas for mouse click detection
     pub layout_areas: LayoutAreas,
-
-    // Pending move operation (cut/paste mode)
     pub pending_move: Option<PendingMove>,
+    pub settings: Settings,
+    pub themes: Vec<Theme>,
+    pub active_theme_index: usize,
 }
 
 /// Stores the layout areas for mouse click detection
@@ -287,11 +374,17 @@ impl App {
         let history = HistoryManager::load(&config.history_file).unwrap_or_default();
         let environments = EnvironmentManager::load(&config.environments_file)
             .unwrap_or_else(|_| EnvironmentManager::new());
+        let settings = Settings::load(&config.settings_file).unwrap_or_default();
 
         // Load collections from the collections directory
         let collections = Self::load_collections(&config.collections_dir)?;
 
         let http_client = HttpClient::new()?;
+        let themes = Theme::presets();
+        let active_theme_index = themes
+            .iter()
+            .position(|theme| theme.name == settings.theme)
+            .unwrap_or(0);
 
         Ok(Self {
             config,
@@ -323,11 +416,16 @@ impl App {
             show_help: false,
             show_env_popup: false,
             env_popup: EnvPopupState::default(),
+            show_theme_popup: false,
+            theme_popup: ThemePopupState::default(),
             selected_param_index: 0,
             selected_header_index: 0,
             dialog: DialogState::default(),
             layout_areas: LayoutAreas::default(),
             pending_move: None,
+            settings,
+            themes,
+            active_theme_index,
         })
     }
 
@@ -388,6 +486,11 @@ impl App {
             return Ok(false);
         }
 
+        // If theme popup is showing, handle it first
+        if self.show_theme_popup {
+            return self.handle_theme_popup_input(key);
+        }
+
         // If env popup is showing, handle it first
         if self.show_env_popup {
             return self.handle_env_popup_input(key);
@@ -401,6 +504,10 @@ impl App {
                 }
                 KeyCode::Char('e') => {
                     self.open_env_popup();
+                    return Ok(false);
+                }
+                KeyCode::Char('t') => {
+                    self.open_theme_popup();
                     return Ok(false);
                 }
                 KeyCode::Char('s') => {
@@ -441,6 +548,20 @@ impl App {
             EnvPopupSection::Shared
         };
         self.env_popup.selected_index = 0;
+        self.input_mode = InputMode::Normal;
+        self.editing_field = None;
+    }
+
+    fn open_theme_popup(&mut self) {
+        self.show_theme_popup = true;
+        self.show_help = false;
+        self.theme_popup.selected_index = self.active_theme_index;
+        self.input_mode = InputMode::Normal;
+        self.editing_field = None;
+    }
+
+    fn close_theme_popup(&mut self) {
+        self.show_theme_popup = false;
         self.input_mode = InputMode::Normal;
         self.editing_field = None;
     }
@@ -494,6 +615,54 @@ impl App {
                 self.error_message = Some(format!("Failed to save environments: {}", err));
             }
         }
+    }
+
+    fn apply_theme(&mut self, index: usize) {
+        let index = index.min(self.themes.len().saturating_sub(1));
+        self.active_theme_index = index;
+        if let Some(theme) = self.themes.get(index) {
+            self.settings.theme = theme.name.to_string();
+        }
+        if let Err(err) = self.settings.save(&self.config.settings_file) {
+            self.error_message = Some(format!("Failed to save settings: {}", err));
+        } else {
+            self.status_message = Some("Theme updated".to_string());
+        }
+    }
+
+    fn theme_popup_move_selection(&mut self, delta: isize) {
+        if self.themes.is_empty() {
+            return;
+        }
+        let len = self.themes.len();
+        let current = self.theme_popup.selected_index.min(len - 1);
+        let step = delta.abs() as usize;
+        let next = if delta.is_negative() {
+            current.saturating_sub(step)
+        } else {
+            (current + step).min(len - 1)
+        };
+        self.theme_popup.selected_index = next;
+    }
+
+    fn handle_theme_popup_input(&mut self, key: KeyEvent) -> Result<bool> {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.close_theme_popup();
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.theme_popup_move_selection(-1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.theme_popup_move_selection(1);
+            }
+            KeyCode::Enter => {
+                self.apply_theme(self.theme_popup.selected_index);
+                self.close_theme_popup();
+            }
+            _ => {}
+        }
+        Ok(false)
     }
 
     fn handle_env_popup_input(&mut self, key: KeyEvent) -> Result<bool> {
@@ -862,6 +1031,11 @@ impl App {
             self.close_env_popup(true);
             return;
         }
+        // Close theme popup if showing
+        if self.show_theme_popup {
+            self.close_theme_popup();
+            return;
+        }
 
         // Check which panel was clicked
         if let Some((px, py, pw, ph)) = self.layout_areas.request_list {
@@ -1035,6 +1209,9 @@ impl App {
             }
             return;
         }
+        if self.show_theme_popup {
+            return;
+        }
 
         // Check if scroll is within response pane
         if let Some((px, py, pw, ph)) = self.layout_areas.response_view {
@@ -1060,12 +1237,36 @@ impl App {
         }
     }
 
-    /// Get the accent color based on the active environment (defaults to Cyan)
+    pub fn theme(&self) -> &Theme {
+        &self.themes[self.active_theme_index]
+    }
+
+    pub fn theme_text_color(&self) -> Color {
+        self.theme().text
+    }
+
+    pub fn theme_muted_color(&self) -> Color {
+        self.theme().muted
+    }
+
+    pub fn theme_surface_color(&self) -> Color {
+        self.theme().surface
+    }
+
+    pub fn theme_selection_bg(&self) -> Color {
+        self.theme().selection_bg
+    }
+
+    pub fn theme_selection_fg(&self) -> Color {
+        self.theme().selection_fg
+    }
+
+    /// Get the accent color based on the active environment (defaults to theme accent)
     pub fn accent_color(&self) -> Color {
         self.environments
             .active_color()
             .map(|s| Self::parse_color(s))
-            .unwrap_or(Color::Cyan)
+            .unwrap_or(self.theme().accent)
     }
 
     /// Parse a color string into a ratatui Color
@@ -3048,6 +3249,7 @@ impl App {
         help.push(("W / Ctrl+s", "Save request to collection"));
         help.push(("y", "Copy as curl to clipboard"));
         help.push(("Ctrl+e", "Edit env variables"));
+        help.push(("Ctrl+t", "Select theme"));
         help.push(("?", "Toggle help"));
         help.push(("q / Ctrl+c", "Quit"));
 

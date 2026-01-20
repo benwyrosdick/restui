@@ -1,7 +1,7 @@
 use crate::app::App;
 use ratatui::{
     layout::{Alignment, Constraint, Flex, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
     Frame,
@@ -38,9 +38,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
                 // Section header
                 Line::from(Span::styled(
                     *desc,
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(accent).add_modifier(Modifier::BOLD),
                 ))
             } else {
                 // Key-value pair
@@ -50,7 +48,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
                         Style::default().fg(accent).add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  "),
-                    Span::styled(*desc, Style::default().fg(Color::White)),
+                    Span::styled(*desc, Style::default().fg(app.theme_text_color())),
                 ])
             }
         })
@@ -65,7 +63,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(accent))
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(app.theme_surface_color()));
 
     let help_text = Paragraph::new(lines)
         .block(help_block)
@@ -83,7 +81,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
     };
     let footer = Paragraph::new(Line::from(vec![Span::styled(
         " Press any key to close ",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(app.theme_muted_color()),
     )]))
     .alignment(Alignment::Center);
     frame.render_widget(footer, footer_area);

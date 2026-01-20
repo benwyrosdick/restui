@@ -21,7 +21,7 @@ pub fn draw_dialog(frame: &mut Frame, app: &App) {
             item_name,
             ..
         } => {
-            draw_confirm_dialog(frame, item_type, item_name, accent);
+            draw_confirm_dialog(frame, app, item_type, item_name, accent);
         }
         _ => {
             draw_input_dialog(frame, app, dialog_type);
@@ -55,7 +55,7 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(accent))
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(app.theme_surface_color()));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -75,9 +75,12 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
     };
 
     let prompt = Paragraph::new(Line::from(vec![
-        Span::styled("Name: ", Style::default().fg(Color::Yellow)),
-        Span::styled(&app.dialog.input_buffer, Style::default().fg(Color::White)),
-        Span::styled(cursor, Style::default().fg(Color::Gray)),
+        Span::styled("Name: ", Style::default().fg(accent)),
+        Span::styled(
+            &app.dialog.input_buffer,
+            Style::default().fg(app.theme_text_color()),
+        ),
+        Span::styled(cursor, Style::default().fg(app.theme_muted_color())),
     ]));
 
     let prompt_area = Rect {
@@ -106,7 +109,13 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
     frame.render_widget(footer, footer_area);
 }
 
-fn draw_confirm_dialog(frame: &mut Frame, item_type: &ItemType, item_name: &str, accent: Color) {
+fn draw_confirm_dialog(
+    frame: &mut Frame,
+    app: &App,
+    item_type: &ItemType,
+    item_name: &str,
+    accent: Color,
+) {
     let type_str = match item_type {
         ItemType::Collection => "collection",
         ItemType::Folder => "folder (and all contents)",
@@ -124,7 +133,7 @@ fn draw_confirm_dialog(frame: &mut Frame, item_type: &ItemType, item_name: &str,
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Red))
-        .style(Style::default().bg(Color::Black));
+        .style(Style::default().bg(app.theme_surface_color()));
 
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -134,14 +143,12 @@ fn draw_confirm_dialog(frame: &mut Frame, item_type: &ItemType, item_name: &str,
         Line::from(""),
         Line::from(Span::styled(
             format!("Delete this {}?", type_str),
-            Style::default().fg(Color::White),
+            Style::default().fg(app.theme_text_color()),
         )),
         Line::from(""),
         Line::from(Span::styled(
             format!("\"{}\"", item_name),
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
         )),
     ])
     .alignment(Alignment::Center);

@@ -5,6 +5,7 @@ mod layout;
 mod request_editor;
 mod request_list;
 mod response;
+mod theme_popup;
 mod url_bar;
 pub mod widgets;
 
@@ -19,6 +20,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         dialog::draw_dialog(frame, app);
     } else if app.show_env_popup {
         env_popup::draw_env_popup(frame, app);
+    } else if app.show_theme_popup {
+        theme_popup::draw_theme_popup(frame, app);
     } else if app.show_help {
         help::draw_help(frame, app);
     }

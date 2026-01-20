@@ -19,7 +19,13 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         "Collections"
     };
 
-    let block = bordered_block(title, focused, accent);
+    let block = bordered_block(
+        title,
+        focused,
+        accent,
+        app.theme_surface_color(),
+        app.theme_muted_color(),
+    );
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
@@ -40,15 +46,13 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         let prefix = if collection.expanded { "▼ " } else { "▶ " };
         let style = if is_header_selected {
             Style::default()
-                .fg(Color::Black)
-                .bg(accent)
+                .fg(app.theme_selection_fg())
+                .bg(app.theme_selection_bg())
                 .add_modifier(Modifier::BOLD)
         } else if col_idx == app.selected_collection {
-            Style::default()
-                .fg(Color::Yellow)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(accent).add_modifier(Modifier::BOLD)
         } else {
-            Style::default().fg(Color::White)
+            Style::default().fg(app.theme_text_color())
         };
 
         items.push(ListItem::new(Line::from(vec![
@@ -85,11 +89,11 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
                 let name_style = if is_selected {
                     Style::default()
-                        .fg(Color::Black)
-                        .bg(accent)
+                        .fg(app.theme_selection_fg())
+                        .bg(app.theme_selection_bg())
                         .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::White)
+                    Style::default().fg(app.theme_text_color())
                 };
 
                 items.push(ListItem::new(Line::from(vec![
@@ -103,7 +107,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
     if items.is_empty() {
         let placeholder = Paragraph::new("No collections. Press 'n' to create a request.")
-            .style(Style::default().fg(Color::DarkGray));
+            .style(Style::default().fg(app.theme_muted_color()));
         frame.render_widget(placeholder, area);
     } else {
         let list = List::new(items);
@@ -111,7 +115,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     }
 }
 
-fn draw_history(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
+fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
     let items: Vec<ListItem> = app
         .history
         .entries
@@ -141,11 +145,11 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
             let style = if is_selected {
                 Style::default()
-                    .bg(accent)
-                    .fg(Color::Black)
+                    .bg(app.theme_selection_bg())
+                    .fg(app.theme_selection_fg())
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default()
+                Style::default().fg(app.theme_text_color())
             };
 
             // Extract path from URL
@@ -173,7 +177,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
     if items.is_empty() {
         let placeholder =
-            Paragraph::new("No history yet.").style(Style::default().fg(Color::DarkGray));
+            Paragraph::new("No history yet.").style(Style::default().fg(app.theme_muted_color()));
         frame.render_widget(placeholder, area);
     } else {
         let list = List::new(items);
