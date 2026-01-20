@@ -2726,44 +2726,120 @@ impl App {
             return;
         }
 
-        let collection = match self.collections.get_mut(self.selected_collection) {
-            Some(c) => c,
-            None => return,
+        let collection_index = self.selected_collection;
+        let mut toggled_folder_id: Option<String> = None;
+        let mut should_adjust_selection = false;
+
+        {
+            let collection = match self.collections.get_mut(collection_index) {
+                Some(c) => c,
+                None => return,
+            };
+
+            // If collection is collapsed, toggle it open
+            if !collection.expanded {
+                collection.expanded = true;
+                return;
+            }
+
+            let flattened = collection.flatten();
+
+            // If no items or selected_item is out of range, toggle the collection itself
+            if flattened.is_empty() || self.selected_item >= flattened.len() {
+                collection.expanded = !collection.expanded;
+                should_adjust_selection = true;
+            } else if let Some((_, item)) = flattened.get(self.selected_item) {
+                if let CollectionItem::Folder { id, .. } = item {
+                    let folder_id = id.clone();
+                    // Need to toggle the folder's expanded state
+                    Self::toggle_folder_expanded(&mut collection.items, &folder_id);
+                    toggled_folder_id = Some(folder_id);
+                    should_adjust_selection = true;
+                } else {
+                    // Selected item is a request - find parent folder and collapse that
+                    let item_id = item.id().to_string();
+                    if let Some(parent_folder_id) =
+                        Self::find_parent_folder_recursive(&collection.items, &item_id)
+                    {
+                        Self::toggle_folder_expanded(&mut collection.items, &parent_folder_id);
+                        toggled_folder_id = Some(parent_folder_id);
+                        should_adjust_selection = true;
+                    } else {
+                        // No parent folder, request is at root level - toggle the collection
+                        collection.expanded = !collection.expanded;
+                        should_adjust_selection = true;
+                    }
+                }
+            }
+        }
+
+        if should_adjust_selection {
+            self.adjust_collection_selection(collection_index, toggled_folder_id.as_deref());
+        }
+    }
+
+    fn adjust_collection_selection(
+        &mut self,
+        collection_index: usize,
+        toggled_folder_id: Option<&str>,
+    ) {
+        if self.is_collection_header_selected() {
+            return;
+        }
+
+        let Some(collection) = self.collections.get(collection_index) else {
+            return;
         };
 
-        // If collection is collapsed, toggle it open
         if !collection.expanded {
-            collection.expanded = true;
+            self.selected_item = usize::MAX;
             return;
         }
 
         let flattened = collection.flatten();
-
-        // If no items or selected_item is out of range, toggle the collection itself
-        if flattened.is_empty() || self.selected_item >= flattened.len() {
-            collection.expanded = !collection.expanded;
+        if flattened.is_empty() {
+            self.selected_item = usize::MAX;
             return;
         }
 
-        // Check if selected item is a folder
-        if let Some((_, item)) = flattened.get(self.selected_item) {
-            if let CollectionItem::Folder { id, .. } = item {
-                let folder_id = id.clone();
-                // Need to toggle the folder's expanded state
-                Self::toggle_folder_expanded(&mut collection.items, &folder_id);
-            } else {
-                // Selected item is a request - find parent folder and collapse that
-                let item_id = item.id().to_string();
-                if let Some(parent_folder_id) =
-                    Self::find_parent_folder_recursive(&collection.items, &item_id)
-                {
-                    Self::toggle_folder_expanded(&mut collection.items, &parent_folder_id);
-                } else {
-                    // No parent folder, request is at root level - toggle the collection
-                    collection.expanded = !collection.expanded;
+        if let Some(folder_id) = toggled_folder_id {
+            if let Some(expanded) = Self::folder_expanded(&collection.items, folder_id) {
+                if !expanded {
+                    if let Some((idx, _)) = flattened
+                        .iter()
+                        .enumerate()
+                        .find(|(_, (_, item))| item.id() == folder_id)
+                    {
+                        self.selected_item = idx;
+                        return;
+                    }
                 }
             }
         }
+
+        if self.selected_item >= flattened.len() {
+            self.selected_item = flattened.len().saturating_sub(1);
+        }
+    }
+
+    fn folder_expanded(items: &[CollectionItem], folder_id: &str) -> Option<bool> {
+        for item in items {
+            if let CollectionItem::Folder {
+                id,
+                expanded,
+                items: sub_items,
+                ..
+            } = item
+            {
+                if id == folder_id {
+                    return Some(*expanded);
+                }
+                if let Some(found) = Self::folder_expanded(sub_items, folder_id) {
+                    return Some(found);
+                }
+            }
+        }
+        None
     }
 
     fn toggle_folder_expanded(items: &mut [CollectionItem], folder_id: &str) -> bool {
