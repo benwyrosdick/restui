@@ -100,6 +100,15 @@ pub enum InputMode {
     Editing,
 }
 
+/// Response pane mode for search/filter
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ResponseMode {
+    #[default]
+    Normal,
+    Search,
+    Filter,
+}
+
 /// Which field is being edited
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditingField {
@@ -323,6 +332,15 @@ pub struct App {
     // Response scroll
     pub response_scroll: u16,
 
+    // Response search/filter state
+    pub response_mode: ResponseMode,
+    pub response_search_query: String,
+    pub response_filter_query: String,
+    pub response_cursor_position: usize,
+    pub response_filtered_content: Option<String>,
+    pub response_search_matches: Vec<usize>,
+    pub response_current_match: usize,
+
     // Body scroll (for request body editor)
     pub body_scroll: u16,
 
@@ -412,6 +430,13 @@ impl App {
             status_message: None,
             error_message: None,
             response_scroll: 0,
+            response_mode: ResponseMode::default(),
+            response_search_query: String::new(),
+            response_filter_query: String::new(),
+            response_cursor_position: 0,
+            response_filtered_content: None,
+            response_search_matches: Vec::new(),
+            response_current_match: 0,
             body_scroll: 0,
             show_help: false,
             show_env_popup: false,
@@ -494,6 +519,11 @@ impl App {
         // If env popup is showing, handle it first
         if self.show_env_popup {
             return self.handle_env_popup_input(key);
+        }
+
+        // If in response search/filter mode, handle it first
+        if self.response_mode != ResponseMode::Normal {
+            return self.handle_response_mode_input(key);
         }
 
         // Global shortcuts
@@ -1306,6 +1336,20 @@ impl App {
             return Ok(false);
         }
 
+        // Clear search/filter in ResponseView with Esc
+        if key.code == KeyCode::Esc && self.focused_panel == FocusedPanel::ResponseView {
+            if !self.response_search_matches.is_empty()
+                || self.response_filtered_content.is_some()
+            {
+                self.response_search_query.clear();
+                self.response_filter_query.clear();
+                self.response_filtered_content = None;
+                self.response_search_matches.clear();
+                self.response_current_match = 0;
+                return Ok(false);
+            }
+        }
+
         match key.code {
             // Panel navigation
             KeyCode::Tab => {
@@ -1336,8 +1380,10 @@ impl App {
                 self.show_history = !self.show_history;
             }
 
-            // New request
-            KeyCode::Char('n') | KeyCode::Char('N') => {
+            // New request (not in ResponseView where n/N are for search navigation)
+            KeyCode::Char('n') | KeyCode::Char('N')
+                if self.focused_panel != FocusedPanel::ResponseView =>
+            {
                 self.new_request();
             }
 
@@ -1437,6 +1483,39 @@ impl App {
             // Copy response body to clipboard (in response view)
             KeyCode::Char('c') if self.focused_panel == FocusedPanel::ResponseView => {
                 self.copy_response();
+            }
+
+            // Search in response (in response view)
+            KeyCode::Char('/') if self.focused_panel == FocusedPanel::ResponseView => {
+                if self.response.is_some() {
+                    self.response_mode = ResponseMode::Search;
+                    self.response_search_query.clear();
+                    self.response_cursor_position = 0;
+                }
+            }
+
+            // JQ filter in response (in response view)
+            KeyCode::Char('f') if self.focused_panel == FocusedPanel::ResponseView => {
+                if self.response.is_some() {
+                    self.response_mode = ResponseMode::Filter;
+                    // Keep existing filter query for editing, set cursor at end
+                    self.response_cursor_position = self.response_filter_query.len();
+                    // Keep filtered content visible while editing
+                }
+            }
+
+            // Next/prev search match in response view
+            KeyCode::Char('n')
+                if self.focused_panel == FocusedPanel::ResponseView
+                    && !self.response_search_matches.is_empty() =>
+            {
+                self.next_search_match();
+            }
+            KeyCode::Char('N')
+                if self.focused_panel == FocusedPanel::ResponseView
+                    && !self.response_search_matches.is_empty() =>
+            {
+                self.prev_search_match();
             }
 
             // Format JSON/GraphQL body
@@ -1543,6 +1622,192 @@ impl App {
             _ => {}
         }
         Ok(false)
+    }
+
+    /// Handle input when in response search/filter mode
+    fn handle_response_mode_input(&mut self, key: KeyEvent) -> Result<bool> {
+        match key.code {
+            KeyCode::Esc => {
+                self.response_mode = ResponseMode::Normal;
+                self.response_search_query.clear();
+                self.response_filter_query.clear();
+                self.response_filtered_content = None;
+                self.response_search_matches.clear();
+                self.response_current_match = 0;
+            }
+            KeyCode::Enter => {
+                match self.response_mode {
+                    ResponseMode::Search => {
+                        self.execute_search();
+                        // Exit search input mode but keep matches visible
+                        self.response_mode = ResponseMode::Normal;
+                    }
+                    ResponseMode::Filter => {
+                        self.execute_filter();
+                        // Exit filter input mode but keep filtered content
+                        self.response_mode = ResponseMode::Normal;
+                    }
+                    ResponseMode::Normal => {}
+                }
+            }
+            KeyCode::Backspace => {
+                match self.response_mode {
+                    ResponseMode::Search => {
+                        if self.response_cursor_position > 0 {
+                            self.response_search_query
+                                .remove(self.response_cursor_position - 1);
+                            self.response_cursor_position -= 1;
+                        }
+                    }
+                    ResponseMode::Filter => {
+                        if self.response_cursor_position > 0 {
+                            self.response_filter_query
+                                .remove(self.response_cursor_position - 1);
+                            self.response_cursor_position -= 1;
+                        }
+                    }
+                    ResponseMode::Normal => {}
+                }
+            }
+            KeyCode::Delete => {
+                match self.response_mode {
+                    ResponseMode::Search => {
+                        if self.response_cursor_position < self.response_search_query.len() {
+                            self.response_search_query.remove(self.response_cursor_position);
+                        }
+                    }
+                    ResponseMode::Filter => {
+                        if self.response_cursor_position < self.response_filter_query.len() {
+                            self.response_filter_query.remove(self.response_cursor_position);
+                        }
+                    }
+                    ResponseMode::Normal => {}
+                }
+            }
+            KeyCode::Left => {
+                self.response_cursor_position = self.response_cursor_position.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                let max_pos = match self.response_mode {
+                    ResponseMode::Search => self.response_search_query.len(),
+                    ResponseMode::Filter => self.response_filter_query.len(),
+                    ResponseMode::Normal => 0,
+                };
+                if self.response_cursor_position < max_pos {
+                    self.response_cursor_position += 1;
+                }
+            }
+            KeyCode::Home => {
+                self.response_cursor_position = 0;
+            }
+            KeyCode::End => {
+                self.response_cursor_position = match self.response_mode {
+                    ResponseMode::Search => self.response_search_query.len(),
+                    ResponseMode::Filter => self.response_filter_query.len(),
+                    ResponseMode::Normal => 0,
+                };
+            }
+            KeyCode::Char(c) => {
+                match self.response_mode {
+                    ResponseMode::Search => {
+                        self.response_search_query
+                            .insert(self.response_cursor_position, c);
+                        self.response_cursor_position += 1;
+                    }
+                    ResponseMode::Filter => {
+                        self.response_filter_query
+                            .insert(self.response_cursor_position, c);
+                        self.response_cursor_position += 1;
+                    }
+                    ResponseMode::Normal => {}
+                }
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    /// Execute search on response body
+    fn execute_search(&mut self) {
+        if let Some(response) = &self.response {
+            let body = if let Some(filtered) = &self.response_filtered_content {
+                filtered.clone()
+            } else {
+                response.pretty_body()
+            };
+            let query = self.response_search_query.to_lowercase();
+
+            if query.is_empty() {
+                self.response_search_matches.clear();
+                self.response_current_match = 0;
+                return;
+            }
+
+            self.response_search_matches = body
+                .lines()
+                .enumerate()
+                .filter(|(_, line)| line.to_lowercase().contains(&query))
+                .map(|(i, _)| i)
+                .collect();
+
+            // Jump to first match
+            if let Some(&first) = self.response_search_matches.first() {
+                self.response_scroll = first as u16;
+                self.response_current_match = 0;
+            }
+        }
+    }
+
+    /// Execute JQ filter on response body
+    fn execute_filter(&mut self) {
+        if let Some(response) = &self.response {
+            let query = &self.response_filter_query;
+
+            if query.is_empty() {
+                self.response_filtered_content = None;
+                self.response_search_matches.clear();
+                return;
+            }
+
+            match crate::filter::apply_jq_filter(&response.body, query) {
+                Ok(result) => {
+                    self.response_filtered_content = Some(result);
+                    self.response_scroll = 0;
+                    self.response_search_matches.clear();
+                    self.error_message = None;
+                }
+                Err(e) => {
+                    self.error_message = Some(format!("Filter error: {}", e));
+                }
+            }
+        }
+    }
+
+    /// Jump to next search match
+    fn next_search_match(&mut self) {
+        if self.response_search_matches.is_empty() {
+            return;
+        }
+        self.response_current_match =
+            (self.response_current_match + 1) % self.response_search_matches.len();
+        if let Some(&line) = self.response_search_matches.get(self.response_current_match) {
+            self.response_scroll = line as u16;
+        }
+    }
+
+    /// Jump to previous search match
+    fn prev_search_match(&mut self) {
+        if self.response_search_matches.is_empty() {
+            return;
+        }
+        if self.response_current_match == 0 {
+            self.response_current_match = self.response_search_matches.len() - 1;
+        } else {
+            self.response_current_match -= 1;
+        }
+        if let Some(&line) = self.response_search_matches.get(self.response_current_match) {
+            self.response_scroll = line as u16;
+        }
     }
 
     /// Get mutable reference to current editing field's text
@@ -2303,7 +2568,14 @@ impl App {
     }
 
     fn copy_as_curl(&mut self) {
-        let curl_cmd = self.request_to_curl();
+        let mut curl_cmd = self.request_to_curl();
+
+        // Append jq filter if one is active
+        if self.response_filtered_content.is_some() && !self.response_filter_query.is_empty() {
+            // Escape single quotes in the filter for shell
+            let escaped_filter = self.response_filter_query.replace("'", "'\\''");
+            curl_cmd = format!("{} | jq '{}'", curl_cmd, escaped_filter);
+        }
 
         match Self::copy_to_clipboard(&curl_cmd) {
             Ok(_) => self.status_message = Some("Copied curl command to clipboard".to_string()),
@@ -2317,8 +2589,21 @@ impl App {
             return;
         };
 
-        match Self::copy_to_clipboard(&response.body) {
-            Ok(_) => self.status_message = Some("Copied response to clipboard".to_string()),
+        // Use filtered content if a filter is active, otherwise use full response
+        let content = if let Some(filtered) = &self.response_filtered_content {
+            filtered.clone()
+        } else {
+            response.pretty_body()
+        };
+
+        let message = if self.response_filtered_content.is_some() {
+            "Copied filtered response to clipboard"
+        } else {
+            "Copied response to clipboard"
+        };
+
+        match Self::copy_to_clipboard(&content) {
+            Ok(_) => self.status_message = Some(message.to_string()),
             Err(e) => self.error_message = Some(format!("Failed to copy: {}", e)),
         }
     }
@@ -2580,6 +2865,14 @@ impl App {
                 self.response = Some(response);
                 self.response_scroll = 0;
                 self.error_message = None;
+
+                // Clear search/filter state for new response
+                self.response_search_query.clear();
+                self.response_filter_query.clear();
+                self.response_filtered_content = None;
+                self.response_search_matches.clear();
+                self.response_current_match = 0;
+                self.response_mode = ResponseMode::Normal;
             }
             Err(e) => {
                 // Add failed request to history
@@ -3337,6 +3630,10 @@ impl App {
                         help.push(("k / ↑", "Scroll up"));
                         help.push(("c", "Copy response to clipboard"));
                         help.push(("s", "Send request again"));
+                        help.push(("/", "Search in response"));
+                        help.push(("f", "JQ filter (e.g. .data, .[0])"));
+                        help.push(("n / N", "Next/prev search match"));
+                        help.push(("Esc", "Clear search/filter"));
                     }
                 }
             }

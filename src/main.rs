@@ -2,6 +2,7 @@
 
 mod app;
 mod config;
+mod filter;
 mod http;
 mod storage;
 mod ui;

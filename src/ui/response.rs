@@ -1,4 +1,4 @@
-use crate::app::{App, FocusedPanel};
+use crate::app::{App, FocusedPanel, ResponseMode};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -8,6 +8,7 @@ use ratatui::{
 };
 
 use super::layout::bordered_block;
+use super::widgets::text_with_cursor;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::ResponseView;
@@ -29,10 +30,24 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
     match &app.response {
         Some(response) => {
-            // Split into status line and body
+            // Show status bar when: in input mode, have active filter, or have search matches
+            let show_status_bar = app.response_mode != ResponseMode::Normal
+                || app.response_filtered_content.is_some()
+                || !app.response_search_matches.is_empty();
+
+            let constraints = if show_status_bar {
+                vec![
+                    Constraint::Length(2),
+                    Constraint::Min(3),
+                    Constraint::Length(1),
+                ]
+            } else {
+                vec![Constraint::Length(2), Constraint::Min(3)]
+            };
+
             let chunks = Layout::default()
                 .direction(Direction::Vertical)
-                .constraints([Constraint::Length(2), Constraint::Min(3)])
+                .constraints(constraints)
                 .split(inner_area);
 
             // Status line
@@ -40,6 +55,11 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
             // Response body with syntax highlighting
             draw_body(frame, app, response, chunks[1], accent);
+
+            // Search/filter status bar
+            if show_status_bar {
+                draw_search_bar(frame, app, chunks[2], accent);
+            }
         }
         None => {
             let placeholder = Paragraph::new("No response yet. Send a request with 's'.")
@@ -102,16 +122,46 @@ fn draw_body(
     app: &App,
     response: &crate::http::HttpResponse,
     area: Rect,
-    _accent: Color,
+    accent: Color,
 ) {
-    let pretty_body = response.pretty_body();
-    let lines: Vec<Line> = pretty_body
+    // Use filtered content if available, otherwise pretty print the response
+    let display_content = if let Some(filtered) = &app.response_filtered_content {
+        filtered.clone()
+    } else {
+        response.pretty_body()
+    };
+
+    let search_query = app.response_search_query.to_lowercase();
+
+    let lines: Vec<Line> = display_content
         .lines()
         .enumerate()
-        .map(|(_, line)| {
+        .map(|(line_num, line)| {
+            let is_match = app.response_search_matches.contains(&line_num);
+            let is_current_match = is_match
+                && app
+                    .response_search_matches
+                    .get(app.response_current_match)
+                    == Some(&line_num);
+
             // Basic JSON syntax highlighting
-            let styled_line = highlight_json_line(line);
-            Line::from(styled_line)
+            let styled_line = if is_match && !search_query.is_empty() {
+                // Highlight search matches within the line
+                highlight_json_line_with_search(line, &search_query, accent)
+            } else {
+                highlight_json_line(line)
+            };
+
+            let line = Line::from(styled_line);
+
+            // Add background for current match
+            if is_current_match {
+                line.style(Style::default().bg(app.theme_selection_bg()))
+            } else if is_match && !search_query.is_empty() {
+                line.style(Style::default().bg(Color::DarkGray))
+            } else {
+                line
+            }
         })
         .collect();
 
@@ -140,6 +190,90 @@ fn draw_body(
 
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }
+}
+
+fn draw_search_bar(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
+    let is_input_mode = app.response_mode != ResponseMode::Normal;
+
+    let mut spans = Vec::new();
+
+    if is_input_mode {
+        // Active input mode - show editable query with cursor
+        let (prefix, query, cursor_pos) = match app.response_mode {
+            ResponseMode::Search => {
+                ("/", &app.response_search_query, app.response_cursor_position)
+            }
+            ResponseMode::Filter => {
+                ("jq: ", &app.response_filter_query, app.response_cursor_position)
+            }
+            ResponseMode::Normal => unreachable!(),
+        };
+
+        spans.push(Span::styled(
+            prefix,
+            Style::default().fg(accent).add_modifier(Modifier::BOLD),
+        ));
+
+        spans.extend(text_with_cursor(
+            query,
+            cursor_pos,
+            true,
+            "",
+            Style::default().fg(Color::White),
+        ));
+    } else {
+        // Normal mode - show applied filter/search info
+        if app.response_filtered_content.is_some() {
+            spans.push(Span::styled(
+                "jq: ",
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                app.response_filter_query.clone(),
+                Style::default().fg(Color::White),
+            ));
+        } else if !app.response_search_matches.is_empty() {
+            spans.push(Span::styled(
+                "/",
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                app.response_search_query.clone(),
+                Style::default().fg(Color::White),
+            ));
+        }
+    }
+
+    // Add match count for search
+    if !app.response_search_matches.is_empty() {
+        spans.push(Span::styled(
+            format!(
+                " [{}/{}]",
+                app.response_current_match + 1,
+                app.response_search_matches.len()
+            ),
+            Style::default().fg(app.theme_muted_color()),
+        ));
+    } else if app.response_mode == ResponseMode::Search && !app.response_search_query.is_empty() {
+        spans.push(Span::styled(
+            " [0/0]",
+            Style::default().fg(app.theme_muted_color()),
+        ));
+    }
+
+    // Add hint for clearing
+    if !is_input_mode
+        && (app.response_filtered_content.is_some() || !app.response_search_matches.is_empty())
+    {
+        spans.push(Span::styled(
+            " (Esc to clear)",
+            Style::default().fg(app.theme_muted_color()),
+        ));
+    }
+
+    let line = Line::from(spans);
+    let para = Paragraph::new(line).style(Style::default().bg(app.theme_surface_color()));
+    frame.render_widget(para, area);
 }
 
 /// Basic JSON syntax highlighting
@@ -261,6 +395,50 @@ fn highlight_json_line(line: &str) -> Vec<Span<'static>> {
             Style::default()
         };
         spans.push(Span::styled(current, style));
+    }
+
+    if spans.is_empty() {
+        spans.push(Span::raw(line.to_string()));
+    }
+
+    spans
+}
+
+/// JSON line highlighting with search term highlighting
+fn highlight_json_line_with_search(line: &str, search: &str, accent: Color) -> Vec<Span<'static>> {
+    if search.is_empty() {
+        return highlight_json_line(line);
+    }
+
+    let line_lower = line.to_lowercase();
+    let mut spans = Vec::new();
+    let mut last_end = 0;
+
+    for (start, _) in line_lower.match_indices(search) {
+        // Add everything before the match with normal highlighting
+        if start > last_end {
+            let before = &line[last_end..start];
+            spans.extend(highlight_json_line(before));
+        }
+
+        // Add the match with highlight
+        let end = start + search.len();
+        let matched = &line[start..end];
+        spans.push(Span::styled(
+            matched.to_string(),
+            Style::default()
+                .fg(Color::Black)
+                .bg(accent)
+                .add_modifier(Modifier::BOLD),
+        ));
+
+        last_end = end;
+    }
+
+    // Add remaining text
+    if last_end < line.len() {
+        let remaining = &line[last_end..];
+        spans.extend(highlight_json_line(remaining));
     }
 
     if spans.is_empty() {

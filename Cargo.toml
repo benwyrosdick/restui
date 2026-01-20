@@ -1,6 +1,6 @@
 [package]
 name = "restui"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 description = "A TUI API testing tool like Postman"
 authors = ["Ben Wyrosdick"]
@@ -37,3 +37,7 @@ base64 = "0.22"
 # Logging (optional, useful for debugging)
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# JQ-style filtering
+jaq-interpret = "1.5"
+jaq-parse = "1.0"
