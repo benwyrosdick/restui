@@ -11,7 +11,10 @@ A terminal-based API testing tool built with Rust and Ratatui. Similar to Postma
 - **Collections**: Organize requests in collections and folders with full CRUD support
 - **Request History**: Track previously sent requests
 - **Response Viewer**: JSON syntax highlighting with scroll wheel support
-- **Clipboard**: Copy requests as curl commands or copy response body
+- **Response Search**: Search within response body with `/`, navigate matches with `n`/`N`
+- **JQ Filtering**: Filter JSON responses with jq syntax (e.g., `.data`, `.[0].name`)
+- **Clipboard**: Copy requests as curl commands (includes jq filter if active) or copy response body
+- **Save Response**: Save response body to file with overwrite protection
 - **Mouse Support**: Click on panels, tabs, and request list items
 - **Keyboard Navigation**: Vim-style (j/k/h/l) and arrow keys
 
@@ -48,7 +51,7 @@ cargo build --release
 | `s` | Send request |
 | `m` | Cycle HTTP method |
 | `n` | New request |
-| `f` | Format body (JSON/GraphQL) |
+| `f` | Format body (in Request Editor) |
 | `e` | Switch environment |
 | `E` | Reload environments from file |
 | `Ctrl+e` | Edit env variables |
@@ -86,7 +89,12 @@ cargo build --release
 | Key | Action |
 |-----|--------|
 | `j/k` or `↑/↓` | Scroll response |
+| `/` | Search in response |
+| `f` | JQ filter (e.g., `.data`, `.[0]`) |
+| `n` / `N` | Next/previous search match |
 | `c` | Copy response to clipboard |
+| `S` | Save response to file |
+| `Esc` | Clear search/filter |
 | Scroll wheel | Scroll response |
 
 #### Auth Tab
@@ -116,6 +124,7 @@ Data is stored in `~/.config/restui/`:
 - `collections/` - Saved request collections (JSON)
 - `history.json` - Request history
 - `environments.json` - Environment variables
+- `settings.json` - User preferences (theme)
 
 ## Environment Variables
 
