@@ -50,11 +50,12 @@ cargo build --release
 | `n` | New request |
 | `e` | Switch environment |
 | `E` | Reload environments from file |
+| `Ctrl+e` | Edit env variables |
 | `H` | Toggle history view |
 | `y` | Copy request as curl command |
-| `W` | Save changes to collection |
+| `W` / `Ctrl+s` | Save changes to collection |
 | `?` | Show help |
-| `q` | Quit |
+| `q` / `Ctrl+c` | Quit |
 
 #### Editing Mode
 
