@@ -2,11 +2,12 @@ use crate::config::Config;
 use crate::http::{HttpClient, HttpResponse};
 use crate::storage::{
     ApiRequest, Collection, CollectionItem, EnvironmentManager, HistoryEntry, HistoryManager,
-    HttpMethod,
+    HttpMethod, KeyValue,
 };
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::style::Color;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Which panel is currently focused
@@ -109,6 +110,16 @@ pub enum EditingField {
     AuthBasicPassword,
     AuthApiKeyName,
     AuthApiKeyValue,
+    EnvSharedKey(usize),
+    EnvSharedValue(usize),
+    EnvActiveKey(usize),
+    EnvActiveValue(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvPopupSection {
+    Shared,
+    Active,
 }
 
 /// Type of item being operated on
@@ -205,6 +216,11 @@ pub struct App {
     // Environment variables popup
     pub show_env_popup: bool,
     pub env_popup_scroll: u16,
+    pub env_popup_visible_height: usize,
+    pub env_popup_shared: Vec<KeyValue>,
+    pub env_popup_active: Vec<KeyValue>,
+    pub env_popup_selected_section: EnvPopupSection,
+    pub env_popup_selected_index: usize,
 
     // Selected param index for navigation in Params tab
     pub selected_param_index: usize,
@@ -277,6 +293,11 @@ impl App {
             show_help: false,
             show_env_popup: false,
             env_popup_scroll: 0,
+            env_popup_visible_height: 0,
+            env_popup_shared: Vec::new(),
+            env_popup_active: Vec::new(),
+            env_popup_selected_section: EnvPopupSection::Shared,
+            env_popup_selected_index: 0,
             selected_param_index: 0,
             selected_header_index: 0,
             dialog: DialogState::default(),
@@ -342,38 +363,9 @@ impl App {
             return Ok(false);
         }
 
-        // If env popup is showing, any key closes it
+        // If env popup is showing, handle it first
         if self.show_env_popup {
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    self.env_popup_scroll = self.env_popup_scroll.saturating_sub(1);
-                    return Ok(false);
-                }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    self.env_popup_scroll = self.env_popup_scroll.saturating_add(1);
-                    return Ok(false);
-                }
-                KeyCode::PageUp => {
-                    self.env_popup_scroll = self.env_popup_scroll.saturating_sub(5);
-                    return Ok(false);
-                }
-                KeyCode::PageDown => {
-                    self.env_popup_scroll = self.env_popup_scroll.saturating_add(5);
-                    return Ok(false);
-                }
-                KeyCode::Home => {
-                    self.env_popup_scroll = 0;
-                    return Ok(false);
-                }
-                KeyCode::End => {
-                    self.env_popup_scroll = self.env_popup_line_count() as u16;
-                    return Ok(false);
-                }
-                _ => {
-                    self.show_env_popup = false;
-                    return Ok(false);
-                }
-            }
+            return self.handle_env_popup_input(key);
         }
 
         // Global shortcuts
@@ -383,9 +375,7 @@ impl App {
                     return Ok(true);
                 }
                 KeyCode::Char('e') => {
-                    self.show_env_popup = true;
-                    self.show_help = false;
-                    self.env_popup_scroll = 0;
+                    self.open_env_popup();
                     return Ok(false);
                 }
                 KeyCode::Char('s') => {
@@ -408,6 +398,433 @@ impl App {
         }
     }
 
+    fn open_env_popup(&mut self) {
+        self.show_env_popup = true;
+        self.show_help = false;
+        self.env_popup_scroll = 0;
+        self.env_popup_shared = self.env_popup_items_from_map(&self.environments.shared);
+        self.env_popup_active = self
+            .environments
+            .active()
+            .map(|env| self.env_popup_items_from_map(&env.variables))
+            .unwrap_or_default();
+        self.env_popup_selected_section = if !self.env_popup_shared.is_empty() {
+            EnvPopupSection::Shared
+        } else if !self.env_popup_active.is_empty() {
+            EnvPopupSection::Active
+        } else {
+            EnvPopupSection::Shared
+        };
+        self.env_popup_selected_index = 0;
+        self.input_mode = InputMode::Normal;
+        self.editing_field = None;
+    }
+
+    fn close_env_popup(&mut self, save_changes: bool) {
+        if save_changes {
+            self.apply_env_popup_changes();
+        }
+        self.show_env_popup = false;
+        self.input_mode = InputMode::Normal;
+        self.editing_field = None;
+    }
+
+    fn env_popup_items_from_map(&self, map: &HashMap<String, String>) -> Vec<KeyValue> {
+        let mut items: Vec<KeyValue> = map
+            .iter()
+            .map(|(key, value)| KeyValue::new(key, value))
+            .collect();
+        items.sort_by(|a, b| a.key.cmp(&b.key));
+        items
+    }
+
+    fn apply_env_popup_changes(&mut self) {
+        let mut shared = HashMap::new();
+        for item in &self.env_popup_shared {
+            let key = item.key.trim();
+            if key.is_empty() {
+                continue;
+            }
+            shared.insert(key.to_string(), item.value.clone());
+        }
+        self.environments.shared = shared;
+
+        if let Some(active) = self.environments.active_mut() {
+            let mut variables = HashMap::new();
+            for item in &self.env_popup_active {
+                let key = item.key.trim();
+                if key.is_empty() {
+                    continue;
+                }
+                variables.insert(key.to_string(), item.value.clone());
+            }
+            active.variables = variables;
+        }
+
+        match self.environments.save(&self.config.environments_file) {
+            Ok(()) => {
+                self.status_message = Some("Saved environments".to_string());
+            }
+            Err(err) => {
+                self.error_message = Some(format!("Failed to save environments: {}", err));
+            }
+        }
+    }
+
+    fn handle_env_popup_input(&mut self, key: KeyEvent) -> Result<bool> {
+        if self.input_mode == InputMode::Editing {
+            return self.handle_env_popup_editing(key);
+        }
+
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.close_env_popup(true);
+            }
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.close_env_popup(true);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.env_popup_move_selection(-1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.env_popup_move_selection(1);
+            }
+            KeyCode::PageUp => {
+                let jump = self.env_popup_visible_height.saturating_sub(1).max(1) as isize;
+                self.env_popup_move_selection(-jump);
+            }
+            KeyCode::PageDown => {
+                let jump = self.env_popup_visible_height.saturating_sub(1).max(1) as isize;
+                self.env_popup_move_selection(jump);
+            }
+            KeyCode::Home => {
+                self.env_popup_select_first();
+            }
+            KeyCode::End => {
+                self.env_popup_select_last();
+            }
+            KeyCode::Char('a') => {
+                self.env_popup_add_item();
+            }
+            KeyCode::Char('x') | KeyCode::Delete => {
+                self.env_popup_delete_item();
+            }
+            KeyCode::Enter => {
+                self.start_env_popup_editing();
+            }
+            _ => {}
+        }
+
+        Ok(false)
+    }
+
+    fn handle_env_popup_editing(&mut self, key: KeyEvent) -> Result<bool> {
+        match key.code {
+            KeyCode::Esc => {
+                self.input_mode = InputMode::Normal;
+                self.editing_field = None;
+            }
+            KeyCode::Tab | KeyCode::Enter => {
+                self.env_popup_next_editing_field();
+            }
+            KeyCode::Backspace => {
+                self.handle_backspace();
+            }
+            KeyCode::Delete => {
+                self.handle_delete();
+            }
+            KeyCode::Left => {
+                self.cursor_left();
+            }
+            KeyCode::Right => {
+                self.cursor_right();
+            }
+            KeyCode::Home => {
+                self.cursor_home();
+            }
+            KeyCode::End => {
+                self.cursor_end();
+            }
+            KeyCode::Char(c) => {
+                self.handle_char_input(c);
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    fn start_env_popup_editing(&mut self) {
+        match self.env_popup_selected_section {
+            EnvPopupSection::Shared => {
+                if self.env_popup_shared.is_empty() {
+                    self.env_popup_shared.push(KeyValue::new("", ""));
+                    self.env_popup_selected_index = 0;
+                } else if self.env_popup_selected_index >= self.env_popup_shared.len() {
+                    self.env_popup_selected_index = self.env_popup_shared.len() - 1;
+                }
+                self.input_mode = InputMode::Editing;
+                self.set_editing_field(EditingField::EnvSharedKey(self.env_popup_selected_index));
+            }
+            EnvPopupSection::Active => {
+                if self.env_popup_active.is_empty() {
+                    self.env_popup_active.push(KeyValue::new("", ""));
+                    self.env_popup_selected_index = 0;
+                } else if self.env_popup_selected_index >= self.env_popup_active.len() {
+                    self.env_popup_selected_index = self.env_popup_active.len() - 1;
+                }
+                self.input_mode = InputMode::Editing;
+                self.set_editing_field(EditingField::EnvActiveKey(self.env_popup_selected_index));
+            }
+        }
+        self.ensure_env_popup_visible();
+    }
+
+    fn env_popup_add_item(&mut self) {
+        match self.env_popup_selected_section {
+            EnvPopupSection::Shared => {
+                self.env_popup_shared.push(KeyValue::new("", ""));
+                self.env_popup_selected_index = self.env_popup_shared.len() - 1;
+                self.input_mode = InputMode::Editing;
+                self.set_editing_field(EditingField::EnvSharedKey(self.env_popup_selected_index));
+            }
+            EnvPopupSection::Active => {
+                self.env_popup_active.push(KeyValue::new("", ""));
+                self.env_popup_selected_index = self.env_popup_active.len() - 1;
+                self.input_mode = InputMode::Editing;
+                self.set_editing_field(EditingField::EnvActiveKey(self.env_popup_selected_index));
+            }
+        }
+        self.ensure_env_popup_visible();
+    }
+
+    fn env_popup_delete_item(&mut self) {
+        match self.env_popup_selected_section {
+            EnvPopupSection::Shared => {
+                if self.env_popup_selected_index < self.env_popup_shared.len() {
+                    self.env_popup_shared.remove(self.env_popup_selected_index);
+                }
+            }
+            EnvPopupSection::Active => {
+                if self.env_popup_selected_index < self.env_popup_active.len() {
+                    self.env_popup_active.remove(self.env_popup_selected_index);
+                }
+            }
+        }
+        self.env_popup_normalize_selection();
+        self.ensure_env_popup_visible();
+    }
+
+    fn env_popup_move_selection(&mut self, delta: isize) {
+        if self.env_popup_shared.is_empty() && self.env_popup_active.is_empty() {
+            return;
+        }
+
+        let mut section = self.env_popup_selected_section;
+        let mut index = self.env_popup_selected_index;
+        let mut steps = delta.abs() as usize;
+        let moving_down = delta > 0;
+
+        while steps > 0 {
+            match (section, moving_down) {
+                (EnvPopupSection::Shared, true) => {
+                    let len = self.env_popup_shared.len();
+                    if len == 0 {
+                        if !self.env_popup_active.is_empty() {
+                            section = EnvPopupSection::Active;
+                            index = 0;
+                        }
+                    } else if index + 1 < len {
+                        index += 1;
+                    } else if !self.env_popup_active.is_empty() {
+                        section = EnvPopupSection::Active;
+                        index = 0;
+                    }
+                }
+                (EnvPopupSection::Active, true) => {
+                    let len = self.env_popup_active.len();
+                    if len == 0 {
+                        if !self.env_popup_shared.is_empty() {
+                            section = EnvPopupSection::Shared;
+                            index = 0;
+                        }
+                    } else if index + 1 < len {
+                        index += 1;
+                    }
+                }
+                (EnvPopupSection::Active, false) => {
+                    let len = self.env_popup_active.len();
+                    if len == 0 {
+                        if !self.env_popup_shared.is_empty() {
+                            section = EnvPopupSection::Shared;
+                            index = self.env_popup_shared.len().saturating_sub(1);
+                        }
+                    } else if index > 0 {
+                        index -= 1;
+                    } else if !self.env_popup_shared.is_empty() {
+                        section = EnvPopupSection::Shared;
+                        index = self.env_popup_shared.len().saturating_sub(1);
+                    }
+                }
+                (EnvPopupSection::Shared, false) => {
+                    let len = self.env_popup_shared.len();
+                    if len == 0 {
+                        if !self.env_popup_active.is_empty() {
+                            section = EnvPopupSection::Active;
+                            index = self.env_popup_active.len().saturating_sub(1);
+                        }
+                    } else if index > 0 {
+                        index -= 1;
+                    }
+                }
+            }
+            steps = steps.saturating_sub(1);
+        }
+
+        self.env_popup_selected_section = section;
+        self.env_popup_selected_index = index;
+        self.env_popup_normalize_selection();
+        self.ensure_env_popup_visible();
+    }
+
+    fn env_popup_select_first(&mut self) {
+        if !self.env_popup_shared.is_empty() {
+            self.env_popup_selected_section = EnvPopupSection::Shared;
+            self.env_popup_selected_index = 0;
+        } else if !self.env_popup_active.is_empty() {
+            self.env_popup_selected_section = EnvPopupSection::Active;
+            self.env_popup_selected_index = 0;
+        } else {
+            self.env_popup_selected_section = EnvPopupSection::Shared;
+            self.env_popup_selected_index = 0;
+        }
+        self.ensure_env_popup_visible();
+    }
+
+    fn env_popup_select_last(&mut self) {
+        if !self.env_popup_active.is_empty() {
+            self.env_popup_selected_section = EnvPopupSection::Active;
+            self.env_popup_selected_index = self.env_popup_active.len() - 1;
+        } else if !self.env_popup_shared.is_empty() {
+            self.env_popup_selected_section = EnvPopupSection::Shared;
+            self.env_popup_selected_index = self.env_popup_shared.len() - 1;
+        } else {
+            self.env_popup_selected_section = EnvPopupSection::Shared;
+            self.env_popup_selected_index = 0;
+        }
+        self.ensure_env_popup_visible();
+    }
+
+    fn env_popup_normalize_selection(&mut self) {
+        match self.env_popup_selected_section {
+            EnvPopupSection::Shared => {
+                if self.env_popup_shared.is_empty() {
+                    if !self.env_popup_active.is_empty() {
+                        self.env_popup_selected_section = EnvPopupSection::Active;
+                        self.env_popup_selected_index =
+                            self.env_popup_active.len().saturating_sub(1);
+                    } else {
+                        self.env_popup_selected_index = 0;
+                    }
+                } else if self.env_popup_selected_index >= self.env_popup_shared.len() {
+                    self.env_popup_selected_index = self.env_popup_shared.len() - 1;
+                }
+            }
+            EnvPopupSection::Active => {
+                if self.env_popup_active.is_empty() {
+                    if !self.env_popup_shared.is_empty() {
+                        self.env_popup_selected_section = EnvPopupSection::Shared;
+                        self.env_popup_selected_index =
+                            self.env_popup_shared.len().saturating_sub(1);
+                    } else {
+                        self.env_popup_selected_index = 0;
+                    }
+                } else if self.env_popup_selected_index >= self.env_popup_active.len() {
+                    self.env_popup_selected_index = self.env_popup_active.len() - 1;
+                }
+            }
+        }
+    }
+
+    fn env_popup_next_editing_field(&mut self) {
+        let next = match self.editing_field {
+            Some(EditingField::EnvSharedKey(i)) => EditingField::EnvSharedValue(i),
+            Some(EditingField::EnvSharedValue(i)) => {
+                let next_idx = i + 1;
+                if next_idx >= self.env_popup_shared.len() {
+                    self.env_popup_shared.push(KeyValue::new("", ""));
+                }
+                EditingField::EnvSharedKey(next_idx)
+            }
+            Some(EditingField::EnvActiveKey(i)) => EditingField::EnvActiveValue(i),
+            Some(EditingField::EnvActiveValue(i)) => {
+                let next_idx = i + 1;
+                if next_idx >= self.env_popup_active.len() {
+                    self.env_popup_active.push(KeyValue::new("", ""));
+                }
+                EditingField::EnvActiveKey(next_idx)
+            }
+            _ => return,
+        };
+
+        match next {
+            EditingField::EnvSharedKey(idx) | EditingField::EnvSharedValue(idx) => {
+                self.env_popup_selected_section = EnvPopupSection::Shared;
+                self.env_popup_selected_index = idx;
+            }
+            EditingField::EnvActiveKey(idx) | EditingField::EnvActiveValue(idx) => {
+                self.env_popup_selected_section = EnvPopupSection::Active;
+                self.env_popup_selected_index = idx;
+            }
+            _ => {}
+        }
+
+        self.set_editing_field(next);
+        self.ensure_env_popup_visible();
+    }
+
+    fn env_popup_selected_line(&self) -> Option<usize> {
+        let mut line = 0usize;
+        for (section, items) in [
+            (EnvPopupSection::Shared, &self.env_popup_shared),
+            (EnvPopupSection::Active, &self.env_popup_active),
+        ] {
+            if line > 0 {
+                line += 1;
+            }
+            line += 1; // header
+            let item_count = items.len().max(1);
+            if section == self.env_popup_selected_section {
+                if items.is_empty() {
+                    return Some(line);
+                }
+                if self.env_popup_selected_index < items.len() {
+                    return Some(line + self.env_popup_selected_index);
+                }
+            }
+            line += item_count;
+        }
+        None
+    }
+
+    fn ensure_env_popup_visible(&mut self) {
+        let visible_height = self.env_popup_visible_height.max(1);
+        let Some(selected_line) = self.env_popup_selected_line() else {
+            return;
+        };
+        let scroll = self.env_popup_scroll as usize;
+        if selected_line < scroll {
+            self.env_popup_scroll = selected_line as u16;
+        } else if selected_line >= scroll + visible_height {
+            let new_scroll = selected_line.saturating_sub(visible_height - 1);
+            self.env_popup_scroll = new_scroll as u16;
+        }
+
+        let max_scroll = self.env_popup_line_count().saturating_sub(visible_height) as u16;
+        if self.env_popup_scroll > max_scroll {
+            self.env_popup_scroll = max_scroll;
+        }
+    }
+
     /// Handle mouse click events
     pub fn handle_mouse_click(&mut self, x: u16, y: u16) {
         // Close help popup if showing
@@ -417,7 +834,7 @@ impl App {
         }
         // Close env popup if showing
         if self.show_env_popup {
-            self.show_env_popup = false;
+            self.close_env_popup(true);
             return;
         }
 
@@ -931,6 +1348,18 @@ impl App {
             EditingField::AuthBasicPassword => Some(&mut self.current_request.auth.basic_password),
             EditingField::AuthApiKeyName => Some(&mut self.current_request.auth.api_key_name),
             EditingField::AuthApiKeyValue => Some(&mut self.current_request.auth.api_key_value),
+            EditingField::EnvSharedKey(i) => {
+                self.env_popup_shared.get_mut(i).map(|item| &mut item.key)
+            }
+            EditingField::EnvSharedValue(i) => {
+                self.env_popup_shared.get_mut(i).map(|item| &mut item.value)
+            }
+            EditingField::EnvActiveKey(i) => {
+                self.env_popup_active.get_mut(i).map(|item| &mut item.key)
+            }
+            EditingField::EnvActiveValue(i) => {
+                self.env_popup_active.get_mut(i).map(|item| &mut item.value)
+            }
         }
     }
 
@@ -971,6 +1400,26 @@ impl App {
             EditingField::AuthBasicPassword => self.current_request.auth.basic_password.len(),
             EditingField::AuthApiKeyName => self.current_request.auth.api_key_name.len(),
             EditingField::AuthApiKeyValue => self.current_request.auth.api_key_value.len(),
+            EditingField::EnvSharedKey(i) => self
+                .env_popup_shared
+                .get(*i)
+                .map(|item| item.key.len())
+                .unwrap_or(0),
+            EditingField::EnvSharedValue(i) => self
+                .env_popup_shared
+                .get(*i)
+                .map(|item| item.value.len())
+                .unwrap_or(0),
+            EditingField::EnvActiveKey(i) => self
+                .env_popup_active
+                .get(*i)
+                .map(|item| item.key.len())
+                .unwrap_or(0),
+            EditingField::EnvActiveValue(i) => self
+                .env_popup_active
+                .get(*i)
+                .map(|item| item.value.len())
+                .unwrap_or(0),
         }
     }
 
@@ -2390,7 +2839,7 @@ impl App {
         help.push(("Shift+Tab", "Previous panel"));
         help.push(("W / Ctrl+s", "Save request to collection"));
         help.push(("y", "Copy as curl to clipboard"));
-        help.push(("Ctrl+e", "Show env variables"));
+        help.push(("Ctrl+e", "Edit env variables"));
         help.push(("?", "Toggle help"));
         help.push(("q / Ctrl+c", "Quit"));
 
@@ -2488,32 +2937,13 @@ impl App {
 
     fn env_popup_line_count(&self) -> usize {
         let mut lines = 0usize;
-        let has_shared = !self.environments.shared.is_empty();
-        let has_active = self
-            .environments
-            .active()
-            .map(|env| !env.variables.is_empty())
-            .unwrap_or(false);
-
-        if !has_shared && !has_active {
-            return 1;
-        }
-
-        if has_shared {
-            lines += 1;
-            lines += self.environments.shared.len();
-        }
-
-        if has_active {
-            if has_shared {
+        for items in [&self.env_popup_shared, &self.env_popup_active] {
+            if lines > 0 {
                 lines += 1;
             }
             lines += 1;
-            if let Some(env) = self.environments.active() {
-                lines += env.variables.len();
-            }
+            lines += items.len().max(1);
         }
-
         lines
     }
 }
