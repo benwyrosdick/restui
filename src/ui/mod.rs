@@ -1,4 +1,5 @@
 mod dialog;
+mod env_popup;
 mod help;
 mod layout;
 mod request_editor;
@@ -16,6 +17,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     // Draw dialog popup on top if showing (higher priority than help)
     if app.dialog.dialog_type.is_some() {
         dialog::draw_dialog(frame, app);
+    } else if app.show_env_popup {
+        env_popup::draw_env_popup(frame, app);
     } else if app.show_help {
         help::draw_help(frame, app);
     }

@@ -202,6 +202,9 @@ pub struct App {
 
     // Help popup
     pub show_help: bool,
+    // Environment variables popup
+    pub show_env_popup: bool,
+    pub env_popup_scroll: u16,
 
     // Selected param index for navigation in Params tab
     pub selected_param_index: usize,
@@ -272,6 +275,8 @@ impl App {
             response_scroll: 0,
             body_scroll: 0,
             show_help: false,
+            show_env_popup: false,
+            env_popup_scroll: 0,
             selected_param_index: 0,
             selected_header_index: 0,
             dialog: DialogState::default(),
@@ -337,11 +342,51 @@ impl App {
             return Ok(false);
         }
 
+        // If env popup is showing, any key closes it
+        if self.show_env_popup {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.env_popup_scroll = self.env_popup_scroll.saturating_sub(1);
+                    return Ok(false);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.env_popup_scroll = self.env_popup_scroll.saturating_add(1);
+                    return Ok(false);
+                }
+                KeyCode::PageUp => {
+                    self.env_popup_scroll = self.env_popup_scroll.saturating_sub(5);
+                    return Ok(false);
+                }
+                KeyCode::PageDown => {
+                    self.env_popup_scroll = self.env_popup_scroll.saturating_add(5);
+                    return Ok(false);
+                }
+                KeyCode::Home => {
+                    self.env_popup_scroll = 0;
+                    return Ok(false);
+                }
+                KeyCode::End => {
+                    self.env_popup_scroll = self.env_popup_line_count() as u16;
+                    return Ok(false);
+                }
+                _ => {
+                    self.show_env_popup = false;
+                    return Ok(false);
+                }
+            }
+        }
+
         // Global shortcuts
         if key.modifiers.contains(KeyModifiers::CONTROL) {
             match key.code {
                 KeyCode::Char('c') if self.input_mode == InputMode::Normal => {
                     return Ok(true);
+                }
+                KeyCode::Char('e') => {
+                    self.show_env_popup = true;
+                    self.show_help = false;
+                    self.env_popup_scroll = 0;
+                    return Ok(false);
                 }
                 KeyCode::Char('s') => {
                     self.save_current_request();
@@ -368,6 +413,11 @@ impl App {
         // Close help popup if showing
         if self.show_help {
             self.show_help = false;
+            return;
+        }
+        // Close env popup if showing
+        if self.show_env_popup {
+            self.show_env_popup = false;
             return;
         }
 
@@ -535,6 +585,15 @@ impl App {
 
     /// Handle mouse scroll wheel events
     pub fn handle_scroll(&mut self, x: u16, y: u16, up: bool) {
+        if self.show_env_popup {
+            if up {
+                self.env_popup_scroll = self.env_popup_scroll.saturating_sub(3);
+            } else {
+                self.env_popup_scroll = self.env_popup_scroll.saturating_add(3);
+            }
+            return;
+        }
+
         // Check if scroll is within response pane
         if let Some((px, py, pw, ph)) = self.layout_areas.response_view {
             if x >= px && x < px + pw && y >= py && y < py + ph {
@@ -2331,6 +2390,7 @@ impl App {
         help.push(("Shift+Tab", "Previous panel"));
         help.push(("W / Ctrl+s", "Save request to collection"));
         help.push(("y", "Copy as curl to clipboard"));
+        help.push(("Ctrl+e", "Show env variables"));
         help.push(("?", "Toggle help"));
         help.push(("q / Ctrl+c", "Quit"));
 
@@ -2424,6 +2484,37 @@ impl App {
         }
 
         help
+    }
+
+    fn env_popup_line_count(&self) -> usize {
+        let mut lines = 0usize;
+        let has_shared = !self.environments.shared.is_empty();
+        let has_active = self
+            .environments
+            .active()
+            .map(|env| !env.variables.is_empty())
+            .unwrap_or(false);
+
+        if !has_shared && !has_active {
+            return 1;
+        }
+
+        if has_shared {
+            lines += 1;
+            lines += self.environments.shared.len();
+        }
+
+        if has_active {
+            if has_shared {
+                lines += 1;
+            }
+            lines += 1;
+            if let Some(env) = self.environments.active() {
+                lines += env.variables.len();
+            }
+        }
+
+        lines
     }
 }
 
