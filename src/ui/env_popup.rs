@@ -1,3 +1,4 @@
+use super::widgets::text_with_cursor;
 use crate::app::{App, EditingField, EnvPopupSection, InputMode};
 use crate::storage::KeyValue;
 use ratatui::{
@@ -16,13 +17,13 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
         EnvSection {
             title: "Shared".to_string(),
             placeholder: "No shared variables. Press 'a' or Enter to add.",
-            items: &app.env_popup_shared,
+            items: &app.env_popup.shared,
             section: EnvPopupSection::Shared,
         },
         EnvSection {
             title: format!("Env: {}", active_name),
             placeholder: "No env variables. Press 'a' or Enter to add.",
-            items: &app.env_popup_active,
+            items: &app.env_popup.active,
             section: EnvPopupSection::Active,
         },
     ];
@@ -57,7 +58,7 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
 
         if section.items.is_empty() {
             let is_selected = app.input_mode == InputMode::Normal
-                && app.env_popup_selected_section == section.section;
+                && app.env_popup.selected_section == section.section;
             let prefix = if is_selected { "> " } else { "  " };
             lines.push(Line::from(vec![
                 Span::styled(prefix, Style::default().fg(accent)),
@@ -69,8 +70,8 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
         } else {
             for (item_index, item) in section.items.iter().enumerate() {
                 let is_selected = app.input_mode == InputMode::Normal
-                    && app.env_popup_selected_section == section.section
-                    && app.env_popup_selected_index == item_index;
+                    && app.env_popup.selected_section == section.section
+                    && app.env_popup.selected_index == item_index;
 
                 let editing_key = match section.section {
                     EnvPopupSection::Shared => EditingField::EnvSharedKey(item_index),
@@ -114,9 +115,9 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
     let popup_height = (lines.len() + 6).min(40).max(10) as u16;
     let visible_height = popup_height.saturating_sub(3) as usize;
     let max_scroll = lines.len().saturating_sub(visible_height) as u16;
-    let scroll = app.env_popup_scroll.min(max_scroll);
-    app.env_popup_scroll = scroll;
-    app.env_popup_visible_height = visible_height;
+    let scroll = app.env_popup.scroll.min(max_scroll);
+    app.env_popup.scroll = scroll;
+    app.env_popup.visible_height = visible_height;
 
     let area = centered_rect(popup_width, popup_height, frame.area());
     frame.render_widget(Clear, area);
@@ -154,49 +155,6 @@ struct EnvSection<'a> {
     placeholder: &'a str,
     items: &'a Vec<KeyValue>,
     section: EnvPopupSection,
-}
-
-fn text_with_cursor<'a>(
-    text: &str,
-    cursor_pos: usize,
-    is_editing: bool,
-    placeholder: &str,
-    base_style: Style,
-) -> Vec<Span<'a>> {
-    if is_editing {
-        let pos = cursor_pos.min(text.len());
-        if text.is_empty() {
-            vec![Span::styled(
-                " ",
-                Style::default().bg(Color::White).fg(Color::Black),
-            )]
-        } else if pos >= text.len() {
-            vec![
-                Span::styled(text.to_string(), Style::default().bg(Color::DarkGray)),
-                Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black)),
-            ]
-        } else {
-            let (before, rest) = text.split_at(pos);
-            let mut chars = rest.chars();
-            let cursor_char = chars.next().unwrap_or(' ');
-            let after: String = chars.collect();
-            vec![
-                Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
-                Span::styled(
-                    cursor_char.to_string(),
-                    Style::default().bg(Color::White).fg(Color::Black),
-                ),
-                Span::styled(after, Style::default().bg(Color::DarkGray)),
-            ]
-        }
-    } else if text.is_empty() {
-        vec![Span::styled(
-            placeholder.to_string(),
-            Style::default().fg(Color::DarkGray),
-        )]
-    } else {
-        vec![Span::styled(text.to_string(), base_style)]
-    }
 }
 
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
