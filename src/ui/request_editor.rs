@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use super::layout::bordered_block;
-use super::widgets::text_with_cursor;
+use super::widgets::text_with_cursor_and_selection;
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestEditor;
@@ -115,22 +115,26 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
             }),
         ));
 
-        spans.extend(text_with_cursor(
+        let selection = if is_editing_key { app.get_selection_range() } else { None };
+        spans.extend(text_with_cursor_and_selection(
             &header.key,
             app.cursor_position,
             is_editing_key,
             "key",
             Style::default().fg(accent),
+            selection,
         ));
 
         spans.push(Span::raw(": "));
 
-        spans.extend(text_with_cursor(
+        let selection = if is_editing_value { app.get_selection_range() } else { None };
+        spans.extend(text_with_cursor_and_selection(
             &header.value,
             app.cursor_position,
             is_editing_value,
             "value",
             Style::default(),
+            selection,
         ));
 
         lines.push(Line::from(spans));
@@ -159,59 +163,100 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
             Style::default().fg(app.theme_muted_color()),
         ))]
     } else if is_editing {
-        // When editing, we need to show cursor at the right position across lines
-        let cursor_pos = app.cursor_position.min(body.len());
+        // When editing, we need to show cursor and selection across lines
+        let char_count = body.chars().count();
+        let cursor_pos = app.cursor_position.min(char_count);
+        let selection = app.get_selection_range();
         let mut result_lines = Vec::new();
-        let mut char_count = 0;
-        let mut cursor_rendered = false;
+        let mut line_char_start = 0;
+
+        let editing_style = Style::default().bg(Color::DarkGray);
+        let cursor_style = Style::default().bg(Color::White).fg(Color::Black);
+        let selection_style = Style::default().bg(Color::Blue).fg(Color::White);
 
         for line_text in body.split('\n') {
-            let line_start = char_count;
-            let line_end = char_count + line_text.len();
+            let line_char_count = line_text.chars().count();
+            let line_char_end = line_char_start + line_char_count;
 
-            if !cursor_rendered && cursor_pos >= line_start && cursor_pos <= line_end {
-                // Cursor is on this line
-                let pos_in_line = cursor_pos - line_start;
-                cursor_rendered = true;
+            let mut spans: Vec<Span> = Vec::new();
+            let chars: Vec<char> = line_text.chars().collect();
 
-                if pos_in_line >= line_text.len() {
-                    // Cursor at end of line, show block cursor after text
-                    result_lines.push(Line::from(vec![
-                        Span::styled(line_text.to_string(), Style::default().bg(Color::DarkGray)),
-                        Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black)),
-                    ]));
+            // Determine if cursor is on this line
+            let cursor_on_line = cursor_pos >= line_char_start && cursor_pos <= line_char_end;
+            let cursor_in_line = if cursor_on_line {
+                Some(cursor_pos - line_char_start)
+            } else {
+                None
+            };
+
+            // Check if we have a selection that overlaps this line
+            let has_selection = selection.map(|(s, e)| s != e).unwrap_or(false);
+
+            if has_selection {
+                let (sel_start, sel_end) = selection.unwrap();
+                // Calculate selection overlap with this line
+                let line_sel_start = sel_start.saturating_sub(line_char_start).min(line_char_count);
+                let line_sel_end = sel_end.saturating_sub(line_char_start).min(line_char_count);
+
+                if line_sel_end > 0 && sel_start < line_char_end && sel_end > line_char_start {
+                    // Selection overlaps this line
+                    if line_sel_start > 0 {
+                        let before: String = chars[..line_sel_start].iter().collect();
+                        spans.push(Span::styled(before, editing_style));
+                    }
+
+                    if line_sel_end > line_sel_start {
+                        let selected: String = chars[line_sel_start..line_sel_end].iter().collect();
+                        spans.push(Span::styled(selected, selection_style));
+                    }
+
+                    if line_sel_end < line_char_count {
+                        let after: String = chars[line_sel_end..].iter().collect();
+                        spans.push(Span::styled(after, editing_style));
+                    }
+
+                    // Add cursor block at end of line if cursor is past text
+                    if cursor_on_line && cursor_in_line.unwrap() >= line_char_count {
+                        spans.push(Span::styled(" ", cursor_style));
+                    }
                 } else {
-                    // Cursor in middle, highlight character under cursor
-                    let (before, rest) = line_text.split_at(pos_in_line);
-                    let mut chars = rest.chars();
-                    let cursor_char = chars.next().unwrap_or(' ');
-                    let after: String = chars.collect();
-                    result_lines.push(Line::from(vec![
-                        Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
-                        Span::styled(
-                            cursor_char.to_string(),
-                            Style::default().bg(Color::White).fg(Color::Black),
-                        ),
-                        Span::styled(after, Style::default().bg(Color::DarkGray)),
-                    ]));
+                    // No selection on this line
+                    spans.push(Span::styled(line_text.to_string(), editing_style));
+                    if cursor_on_line && cursor_in_line.unwrap() >= line_char_count {
+                        spans.push(Span::styled(" ", cursor_style));
+                    }
+                }
+            } else if let Some(pos_in_line) = cursor_in_line {
+                // No selection, just cursor
+                if pos_in_line >= line_char_count {
+                    // Cursor at end of line
+                    spans.push(Span::styled(line_text.to_string(), editing_style));
+                    spans.push(Span::styled(" ", cursor_style));
+                } else {
+                    // Cursor in middle
+                    if pos_in_line > 0 {
+                        let before: String = chars[..pos_in_line].iter().collect();
+                        spans.push(Span::styled(before, editing_style));
+                    }
+                    spans.push(Span::styled(chars[pos_in_line].to_string(), cursor_style));
+                    if pos_in_line + 1 < line_char_count {
+                        let after: String = chars[pos_in_line + 1..].iter().collect();
+                        spans.push(Span::styled(after, editing_style));
+                    }
                 }
             } else {
-                result_lines.push(Line::from(Span::styled(
-                    line_text.to_string(),
-                    Style::default().bg(Color::DarkGray),
-                )));
+                // Line without cursor
+                spans.push(Span::styled(line_text.to_string(), editing_style));
             }
 
-            // Account for the newline character (except for the last line)
-            char_count = line_end + 1;
+            result_lines.push(Line::from(spans));
+            // Account for the newline character
+            line_char_start = line_char_end + 1;
         }
 
         // Handle empty body with cursor
         if result_lines.is_empty() {
-            result_lines.push(Line::from(Span::styled(
-                " ",
-                Style::default().bg(Color::White).fg(Color::Black),
-            )));
+            result_lines.push(Line::from(Span::styled(" ", cursor_style)));
         }
 
         result_lines
@@ -299,12 +344,13 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
             )];
             if is_editing {
                 // Show full token with cursor when editing
-                spans.extend(text_with_cursor(
+                spans.extend(text_with_cursor_and_selection(
                     &auth.bearer_token,
                     app.cursor_position,
                     true,
                     "Enter token...",
                     Style::default(),
+                    app.get_selection_range(),
                 ));
             } else if auth.bearer_token.is_empty() {
                 spans.push(Span::styled(
@@ -326,12 +372,14 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 "Username: ",
                 Style::default().fg(Color::DarkGray),
             )];
-            user_spans.extend(text_with_cursor(
+            let selection = if is_editing_user { app.get_selection_range() } else { None };
+            user_spans.extend(text_with_cursor_and_selection(
                 &auth.basic_username,
                 app.cursor_position,
                 is_editing_user,
                 "Enter username...",
                 Style::default(),
+                selection,
             ));
             lines.push(Line::from(user_spans));
 
@@ -343,12 +391,13 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
             if is_editing_pass {
                 // Show masked password with cursor at correct position
                 let masked = "*".repeat(auth.basic_password.len());
-                pass_spans.extend(text_with_cursor(
+                pass_spans.extend(text_with_cursor_and_selection(
                     &masked,
                     app.cursor_position,
                     true,
                     "Enter password...",
                     Style::default(),
+                    app.get_selection_range(),
                 ));
             } else if auth.basic_password.is_empty() {
                 pass_spans.push(Span::styled(
@@ -373,12 +422,14 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 "Key Name: ",
                 Style::default().fg(Color::DarkGray),
             )];
-            name_spans.extend(text_with_cursor(
+            let selection = if is_editing_name { app.get_selection_range() } else { None };
+            name_spans.extend(text_with_cursor_and_selection(
                 &auth.api_key_name,
                 app.cursor_position,
                 is_editing_name,
                 "e.g., X-API-Key",
                 Style::default(),
+                selection,
             ));
             lines.push(Line::from(name_spans));
 
@@ -387,12 +438,13 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 Style::default().fg(Color::DarkGray),
             )];
             if is_editing_value {
-                value_spans.extend(text_with_cursor(
+                value_spans.extend(text_with_cursor_and_selection(
                     &auth.api_key_value,
                     app.cursor_position,
                     true,
                     "Enter API key...",
                     Style::default(),
+                    app.get_selection_range(),
                 ));
             } else if auth.api_key_value.is_empty() {
                 value_spans.push(Span::styled(
@@ -455,22 +507,26 @@ fn draw_params(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
             }),
         ));
 
-        spans.extend(text_with_cursor(
+        let selection = if is_editing_key { app.get_selection_range() } else { None };
+        spans.extend(text_with_cursor_and_selection(
             &param.key,
             app.cursor_position,
             is_editing_key,
             "key",
             Style::default().fg(accent),
+            selection,
         ));
 
         spans.push(Span::raw("="));
 
-        spans.extend(text_with_cursor(
+        let selection = if is_editing_value { app.get_selection_range() } else { None };
+        spans.extend(text_with_cursor_and_selection(
             &param.value,
             app.cursor_position,
             is_editing_value,
             "value",
             Style::default(),
+            selection,
         ));
 
         lines.push(Line::from(spans));

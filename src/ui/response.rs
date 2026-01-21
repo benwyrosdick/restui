@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use super::layout::bordered_block;
-use super::widgets::text_with_cursor;
+use super::widgets::text_with_cursor_and_selection;
 
 pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::ResponseView;
@@ -214,12 +214,13 @@ fn draw_search_bar(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
             Style::default().fg(accent).add_modifier(Modifier::BOLD),
         ));
 
-        spans.extend(text_with_cursor(
+        spans.extend(text_with_cursor_and_selection(
             query,
             cursor_pos,
             true,
             "",
             Style::default().fg(Color::White),
+            None, // Response search/filter doesn't support selection
         ));
     } else {
         // Normal mode - show applied filter/search info

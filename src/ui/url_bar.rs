@@ -20,37 +20,52 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         crate::storage::HttpMethod::Delete => Color::Red,
     };
 
-    // URL display with cursor if editing
+    // URL display with cursor and selection if editing
     let url_text = &app.current_request.url;
     let url_spans: Vec<Span> = if is_editing {
-        // Block cursor style (like body editor)
-        let cursor_pos = app.cursor_position.min(url_text.len());
+        let editing_style = Style::default().bg(Color::DarkGray);
+        let cursor_style = Style::default().bg(Color::White).fg(Color::Black);
+        let selection_style = Style::default().bg(Color::Blue).fg(Color::White);
+
+        let char_count = url_text.chars().count();
+        let cursor_pos = app.cursor_position.min(char_count);
+        let selection = app.get_selection_range();
+
         if url_text.is_empty() {
             // Empty text, show block cursor as a space
-            vec![Span::styled(
-                " ",
-                Style::default().bg(Color::White).fg(Color::Black),
-            )]
-        } else if cursor_pos >= url_text.len() {
-            // Cursor at end, show block cursor after text
-            vec![
-                Span::styled(url_text.to_string(), Style::default().bg(Color::DarkGray)),
-                Span::styled(" ", Style::default().bg(Color::White).fg(Color::Black)),
-            ]
+            vec![Span::styled(" ", cursor_style)]
+        } else if let Some((sel_start, sel_end)) = selection {
+            if sel_start != sel_end {
+                // We have a selection
+                let chars: Vec<char> = url_text.chars().collect();
+                let mut spans = Vec::new();
+
+                if sel_start > 0 {
+                    let before: String = chars[..sel_start].iter().collect();
+                    spans.push(Span::styled(before, editing_style));
+                }
+
+                let selected: String = chars[sel_start..sel_end].iter().collect();
+                spans.push(Span::styled(selected, selection_style));
+
+                if sel_end < char_count {
+                    let after: String = chars[sel_end..].iter().collect();
+                    spans.push(Span::styled(after, editing_style));
+                }
+
+                // Cursor at end if past text
+                if cursor_pos >= char_count {
+                    spans.push(Span::styled(" ", cursor_style));
+                }
+
+                spans
+            } else {
+                // Selection collapsed - show just cursor
+                render_url_with_cursor(url_text, cursor_pos, char_count, editing_style, cursor_style)
+            }
         } else {
-            // Cursor in middle, highlight character under cursor
-            let (before, rest) = url_text.split_at(cursor_pos);
-            let mut chars = rest.chars();
-            let cursor_char = chars.next().unwrap_or(' ');
-            let after: String = chars.collect();
-            vec![
-                Span::styled(before.to_string(), Style::default().bg(Color::DarkGray)),
-                Span::styled(
-                    cursor_char.to_string(),
-                    Style::default().bg(Color::White).fg(Color::Black),
-                ),
-                Span::styled(after, Style::default().bg(Color::DarkGray)),
-            ]
+            // No selection, just cursor
+            render_url_with_cursor(url_text, cursor_pos, char_count, editing_style, cursor_style)
         }
     } else if url_text.is_empty() {
         vec![Span::styled(
@@ -111,4 +126,38 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     app.layout_areas.url_text_start = Some(url_text_start);
 
     frame.render_widget(url_bar, area);
+}
+
+fn render_url_with_cursor<'a>(
+    url_text: &str,
+    cursor_pos: usize,
+    char_count: usize,
+    editing_style: Style,
+    cursor_style: Style,
+) -> Vec<Span<'a>> {
+    if cursor_pos >= char_count {
+        // Cursor at end, show block cursor after text
+        vec![
+            Span::styled(url_text.to_string(), editing_style),
+            Span::styled(" ", cursor_style),
+        ]
+    } else {
+        // Cursor in middle, highlight character under cursor
+        let chars: Vec<char> = url_text.chars().collect();
+        let mut spans = Vec::new();
+
+        if cursor_pos > 0 {
+            let before: String = chars[..cursor_pos].iter().collect();
+            spans.push(Span::styled(before, editing_style));
+        }
+
+        spans.push(Span::styled(chars[cursor_pos].to_string(), cursor_style));
+
+        if cursor_pos + 1 < char_count {
+            let after: String = chars[cursor_pos + 1..].iter().collect();
+            spans.push(Span::styled(after, editing_style));
+        }
+
+        spans
+    }
 }

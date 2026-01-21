@@ -121,6 +121,9 @@ async fn run_app(
                     MouseEventKind::Down(MouseButton::Left) => {
                         app.handle_mouse_click(mouse.column, mouse.row);
                     }
+                    MouseEventKind::Drag(MouseButton::Left) => {
+                        app.handle_mouse_drag(mouse.column, mouse.row);
+                    }
                     MouseEventKind::ScrollUp => {
                         app.handle_scroll(mouse.column, mouse.row, true);
                     }

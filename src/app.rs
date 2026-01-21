@@ -309,8 +309,12 @@ pub struct App {
     pub input_mode: InputMode,
     pub editing_field: Option<EditingField>,
     pub cursor_position: usize,
+    // Text selection anchor (None = no selection, Some(pos) = selection started at pos)
+    pub selection_anchor: Option<usize>,
+    // Track mouse drag state for text selection
+    mouse_drag_field: Option<EditingField>,
 
-    // Selection state
+    // Collection/item selection state
     pub selected_collection: usize,
     pub selected_item: usize,
     pub selected_history: usize,
@@ -419,6 +423,8 @@ impl App {
             input_mode: InputMode::Normal,
             editing_field: None,
             cursor_position: 0,
+            selection_anchor: None,
+            mouse_drag_field: None,
             selected_collection: 0,
             selected_item: usize::MAX, // usize::MAX means collection header is selected
             selected_history: 0,
@@ -1132,8 +1138,11 @@ impl App {
                         self.cursor_position = 0;
                     }
                 } else {
-                    self.cursor_position = self.current_request.url.len();
+                    self.cursor_position = self.current_request.url.chars().count();
                 }
+                // Set selection anchor for potential drag selection
+                self.selection_anchor = Some(self.cursor_position);
+                self.mouse_drag_field = Some(EditingField::Url);
                 return;
             }
         }
@@ -1180,15 +1189,18 @@ impl App {
                                         let mut char_pos = 0;
                                         for (i, line) in lines.iter().enumerate() {
                                             if i == click_row {
-                                                char_pos += click_col.min(line.len());
+                                                char_pos += click_col.min(line.chars().count());
                                                 break;
                                             }
                                             if i < lines.len() - 1 {
-                                                char_pos += line.len() + 1;
+                                                char_pos += line.chars().count() + 1; // +1 for newline
                                             }
                                         }
 
-                                        self.cursor_position = char_pos.min(body.len());
+                                        self.cursor_position = char_pos.min(body.chars().count());
+                                        // Set selection anchor for potential drag selection
+                                        self.selection_anchor = Some(self.cursor_position);
+                                        self.mouse_drag_field = Some(EditingField::Body);
                                         return;
                                     }
                                 }
@@ -1231,6 +1243,62 @@ impl App {
                 self.input_mode = InputMode::Normal;
                 self.editing_field = None;
                 return;
+            }
+        }
+
+        // Clear drag state if click was not in an editable field
+        self.mouse_drag_field = None;
+        self.selection_anchor = None;
+    }
+
+    /// Handle mouse drag events for text selection
+    pub fn handle_mouse_drag(&mut self, x: u16, y: u16) {
+        // Only handle drag if we started in an editable field
+        let Some(drag_field) = &self.mouse_drag_field else {
+            return;
+        };
+
+        match drag_field {
+            EditingField::Url => {
+                // Calculate new cursor position from drag position
+                if let Some(text_start) = self.layout_areas.url_text_start {
+                    let url_len = self.current_request.url.chars().count();
+                    if x >= text_start {
+                        let drag_offset = (x - text_start) as usize;
+                        self.cursor_position = drag_offset.min(url_len);
+                    } else {
+                        self.cursor_position = 0;
+                    }
+                }
+            }
+            EditingField::Body => {
+                // Calculate position in body from drag coordinates
+                if let Some((bx, by, _bw, _bh)) = self.layout_areas.body_area {
+                    let drag_row = (y.saturating_sub(by)) as usize + self.body_scroll as usize;
+                    let drag_col = (x.saturating_sub(bx)) as usize;
+
+                    let body = &self.current_request.body;
+                    let lines: Vec<&str> = body.split('\n').collect();
+
+                    let mut char_pos = 0;
+                    for (i, line) in lines.iter().enumerate() {
+                        if i == drag_row {
+                            char_pos += drag_col.min(line.chars().count());
+                            break;
+                        }
+                        if i < lines.len() - 1 {
+                            char_pos += line.chars().count() + 1; // +1 for newline
+                        } else if i < drag_row {
+                            // Dragged past last line, position at end
+                            char_pos += line.chars().count();
+                        }
+                    }
+
+                    self.cursor_position = char_pos.min(body.chars().count());
+                }
+            }
+            _ => {
+                // Other fields don't support mouse drag selection currently
             }
         }
     }
@@ -1586,49 +1654,107 @@ impl App {
     }
 
     fn handle_editing_mode(&mut self, key: KeyEvent) -> Result<bool> {
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
         match key.code {
             KeyCode::Esc => {
                 self.input_mode = InputMode::Normal;
                 self.editing_field = None;
+                self.selection_anchor = None;
             }
             // Tab to move to next field
             KeyCode::Tab => {
+                self.selection_anchor = None;
                 self.next_editing_field();
             }
             KeyCode::Enter => {
                 // For body, add newline at cursor
                 // For other fields, move to next field
                 if matches!(self.editing_field, Some(EditingField::Body)) {
+                    self.delete_selection_if_any();
                     self.handle_char_input('\n');
                 } else {
+                    self.selection_anchor = None;
                     self.next_editing_field();
                 }
             }
             KeyCode::Backspace => {
-                self.handle_backspace();
+                if self.has_selection() {
+                    self.delete_selection_if_any();
+                } else {
+                    self.handle_backspace();
+                }
             }
             KeyCode::Delete => {
-                self.handle_delete();
+                if self.has_selection() {
+                    self.delete_selection_if_any();
+                } else {
+                    self.handle_delete();
+                }
             }
             KeyCode::Left => {
-                self.cursor_left();
+                if shift {
+                    self.select_left();
+                } else {
+                    self.selection_anchor = None;
+                    self.cursor_left();
+                }
             }
             KeyCode::Right => {
-                self.cursor_right();
+                if shift {
+                    self.select_right();
+                } else {
+                    self.selection_anchor = None;
+                    self.cursor_right();
+                }
             }
             KeyCode::Up => {
-                self.cursor_up();
+                if shift {
+                    self.select_up();
+                } else {
+                    self.selection_anchor = None;
+                    self.cursor_up();
+                }
             }
             KeyCode::Down => {
-                self.cursor_down();
+                if shift {
+                    self.select_down();
+                } else {
+                    self.selection_anchor = None;
+                    self.cursor_down();
+                }
             }
             KeyCode::Home => {
-                self.cursor_home();
+                if shift {
+                    self.select_home();
+                } else {
+                    self.selection_anchor = None;
+                    self.cursor_home();
+                }
             }
             KeyCode::End => {
-                self.cursor_end();
+                if shift {
+                    self.select_end();
+                } else {
+                    self.selection_anchor = None;
+                    self.cursor_end();
+                }
+            }
+            KeyCode::Char('a') if ctrl => {
+                self.select_all();
+            }
+            KeyCode::Char('c') if ctrl => {
+                self.copy_selection();
+            }
+            KeyCode::Char('x') if ctrl => {
+                self.cut_selection();
+            }
+            KeyCode::Char('v') if ctrl => {
+                self.paste();
             }
             KeyCode::Char(c) => {
+                self.delete_selection_if_any();
                 self.handle_char_input(c);
             }
             _ => {}
@@ -2071,6 +2197,147 @@ impl App {
         // Move to same column on next line (or end of line if shorter)
         self.cursor_position = next_line_start + col.min(next_line_len);
         self.ensure_body_cursor_visible();
+    }
+
+    // Selection helper functions
+
+    fn has_selection(&self) -> bool {
+        if let Some(anchor) = self.selection_anchor {
+            anchor != self.cursor_position
+        } else {
+            false
+        }
+    }
+
+    /// Get selection range as (start, end) where start <= end
+    pub fn get_selection_range(&self) -> Option<(usize, usize)> {
+        self.selection_anchor.map(|anchor| {
+            let start = anchor.min(self.cursor_position);
+            let end = anchor.max(self.cursor_position);
+            (start, end)
+        })
+    }
+
+    fn start_selection_if_needed(&mut self) {
+        if self.selection_anchor.is_none() {
+            self.selection_anchor = Some(self.cursor_position);
+        }
+    }
+
+    fn select_left(&mut self) {
+        self.start_selection_if_needed();
+        self.cursor_left();
+    }
+
+    fn select_right(&mut self) {
+        self.start_selection_if_needed();
+        self.cursor_right();
+    }
+
+    fn select_up(&mut self) {
+        self.start_selection_if_needed();
+        self.cursor_up();
+    }
+
+    fn select_down(&mut self) {
+        self.start_selection_if_needed();
+        self.cursor_down();
+    }
+
+    fn select_home(&mut self) {
+        self.start_selection_if_needed();
+        self.cursor_home();
+    }
+
+    fn select_end(&mut self) {
+        self.start_selection_if_needed();
+        self.cursor_end();
+    }
+
+    fn select_all(&mut self) {
+        let len = self.get_current_field_len();
+        self.selection_anchor = Some(0);
+        self.cursor_position = len;
+    }
+
+    fn get_selected_text(&self) -> Option<String> {
+        let (start, end) = self.get_selection_range()?;
+        let text = self.get_current_field_ref()?;
+
+        // Convert char positions to byte positions
+        let byte_start = text.char_indices().nth(start).map(|(i, _)| i).unwrap_or(0);
+        let byte_end = text.char_indices().nth(end).map(|(i, _)| i).unwrap_or(text.len());
+
+        Some(text[byte_start..byte_end].to_string())
+    }
+
+    fn delete_selection_if_any(&mut self) {
+        let Some((start, end)) = self.get_selection_range() else {
+            return;
+        };
+        if start == end {
+            self.selection_anchor = None;
+            return;
+        }
+
+        if let Some(text) = self.get_current_field_mut() {
+            // Convert char positions to byte positions
+            let byte_start = text.char_indices().nth(start).map(|(i, _)| i).unwrap_or(0);
+            let byte_end = text.char_indices().nth(end).map(|(i, _)| i).unwrap_or(text.len());
+            text.replace_range(byte_start..byte_end, "");
+        }
+        self.cursor_position = start;
+        self.selection_anchor = None;
+    }
+
+    fn copy_selection(&mut self) {
+        if let Some(text) = self.get_selected_text() {
+            if !text.is_empty() {
+                let _ = Self::copy_to_clipboard(&text);
+            }
+        }
+    }
+
+    fn cut_selection(&mut self) {
+        if let Some(text) = self.get_selected_text() {
+            if !text.is_empty() {
+                let _ = Self::copy_to_clipboard(&text);
+                self.delete_selection_if_any();
+            }
+        }
+    }
+
+    fn paste(&mut self) {
+        if let Ok(text) = Self::paste_from_clipboard() {
+            self.delete_selection_if_any();
+            // Insert pasted text character by character
+            for c in text.chars() {
+                self.handle_char_input(c);
+            }
+        }
+    }
+
+    fn get_current_field_ref(&self) -> Option<&String> {
+        let field = self.editing_field.clone()?;
+        match field {
+            EditingField::Url => Some(&self.current_request.url),
+            EditingField::Body => Some(&self.current_request.body),
+            EditingField::HeaderKey(i) => self.current_request.headers.get(i).map(|h| &h.key),
+            EditingField::HeaderValue(i) => self.current_request.headers.get(i).map(|h| &h.value),
+            EditingField::ParamKey(i) => self.current_request.query_params.get(i).map(|p| &p.key),
+            EditingField::ParamValue(i) => {
+                self.current_request.query_params.get(i).map(|p| &p.value)
+            }
+            EditingField::AuthBearerToken => Some(&self.current_request.auth.bearer_token),
+            EditingField::AuthBasicUsername => Some(&self.current_request.auth.basic_username),
+            EditingField::AuthBasicPassword => Some(&self.current_request.auth.basic_password),
+            EditingField::AuthApiKeyName => Some(&self.current_request.auth.api_key_name),
+            EditingField::AuthApiKeyValue => Some(&self.current_request.auth.api_key_value),
+            EditingField::EnvSharedKey(i) => self.env_popup.shared.get(i).map(|kv| &kv.key),
+            EditingField::EnvSharedValue(i) => self.env_popup.shared.get(i).map(|kv| &kv.value),
+            EditingField::EnvActiveKey(i) => self.env_popup.active.get(i).map(|kv| &kv.key),
+            EditingField::EnvActiveValue(i) => self.env_popup.active.get(i).map(|kv| &kv.value),
+        }
     }
 
     /// Set editing field and position cursor at end
@@ -2596,6 +2863,39 @@ impl App {
             }
             child.wait()?;
             return Ok(());
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Clipboard not supported on this platform",
+        ))
+    }
+
+    fn paste_from_clipboard() -> Result<String, std::io::Error> {
+        #[cfg(target_os = "macos")]
+        {
+            let output = std::process::Command::new("pbpaste").output()?;
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            // Try wl-paste first (Wayland), then fall back to xclip (X11)
+            if let Ok(output) = std::process::Command::new("wl-paste")
+                .arg("-n")
+                .output()
+            {
+                if output.status.success() {
+                    return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+                }
+            }
+
+            // Fall back to xclip for X11
+            let output = std::process::Command::new("xclip")
+                .args(["-selection", "clipboard", "-o"])
+                .output()?;
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
         }
 
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]

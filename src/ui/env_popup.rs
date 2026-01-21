@@ -1,4 +1,4 @@
-use super::widgets::text_with_cursor;
+use super::widgets::text_with_cursor_and_selection;
 use crate::app::{App, EditingField, EnvPopupSection, InputMode};
 use crate::storage::KeyValue;
 use ratatui::{
@@ -91,20 +91,24 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
                     if is_selected { "> " } else { "  " },
                     Style::default().fg(accent),
                 ));
-                spans.extend(text_with_cursor(
+                let selection = if is_editing_key { app.get_selection_range() } else { None };
+                spans.extend(text_with_cursor_and_selection(
                     &item.key,
                     app.cursor_position,
                     is_editing_key,
                     "key",
                     Style::default().fg(accent).add_modifier(Modifier::BOLD),
+                    selection,
                 ));
                 spans.push(Span::raw(" = "));
-                spans.extend(text_with_cursor(
+                let selection = if is_editing_value { app.get_selection_range() } else { None };
+                spans.extend(text_with_cursor_and_selection(
                     &item.value,
                     app.cursor_position,
                     is_editing_value,
                     "value",
                     Style::default().fg(app.theme_text_color()),
+                    selection,
                 ));
 
                 lines.push(Line::from(spans));
