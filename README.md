@@ -91,6 +91,7 @@ cargo build --release
 | `j/k` or `↑/↓` | Scroll response |
 | `/` | Search in response |
 | `f` | JQ filter (e.g., `.data`, `.[0]`) |
+| `F` | Filter history (select from recent filters) |
 | `n` / `N` | Next/previous search match |
 | `c` | Copy response to clipboard |
 | `S` | Save response to file |
@@ -109,6 +110,7 @@ cargo build --release
 - Click on tabs (Headers/Body/Auth/Params) to switch
 - Click on requests in the list to select them
 - Click on URL bar to start editing
+- Click and drag to select text in edit fields
 - Scroll wheel to scroll response content
 
 ### Panels
@@ -125,6 +127,7 @@ Data is stored in `~/.config/restui/`:
 - `history.json` - Request history
 - `environments.json` - Environment variables
 - `settings.json` - User preferences (theme)
+- `filter_history.json` - Recent JQ filters
 
 ## Environment Variables
 

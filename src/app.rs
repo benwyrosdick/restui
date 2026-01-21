@@ -4236,6 +4236,7 @@ impl App {
                         help.push(("s", "Send request again"));
                         help.push(("/", "Search in response"));
                         help.push(("f", "JQ filter (e.g. .data, .[0])"));
+                        help.push(("F", "Filter history"));
                         help.push(("n / N", "Next/prev search match"));
                         help.push(("Esc", "Clear search/filter"));
                     }
