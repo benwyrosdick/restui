@@ -406,6 +406,7 @@ impl App {
         let environments = EnvironmentManager::load(&config.environments_file)
             .unwrap_or_else(|_| EnvironmentManager::new());
         let settings = Settings::load(&config.settings_file).unwrap_or_default();
+        let filter_history = Self::load_filter_history(&config.filter_history_file);
 
         // Load collections from the collections directory
         let collections = Self::load_collections(&config.collections_dir)?;
@@ -452,7 +453,7 @@ impl App {
             response_filtered_content: None,
             response_search_matches: Vec::new(),
             response_current_match: 0,
-            filter_history: Vec::new(),
+            filter_history,
             show_filter_history: false,
             filter_history_selected: 0,
             body_scroll: 0,
@@ -750,6 +751,8 @@ impl App {
                     {
                         self.filter_history_selected -= 1;
                     }
+                    // Persist immediately
+                    self.save_filter_history();
                     // Close popup if history is now empty
                     if self.filter_history.is_empty() {
                         self.show_filter_history = false;
@@ -2000,6 +2003,8 @@ impl App {
         self.filter_history.insert(0, filter);
         // Keep only the last 20 filters
         self.filter_history.truncate(20);
+        // Persist immediately
+        self.save_filter_history();
     }
 
     /// Jump to next search match
@@ -4083,6 +4088,9 @@ impl App {
         // Save environments
         self.environments.save(&self.config.environments_file)?;
 
+        // Save filter history
+        self.save_filter_history();
+
         // Save collections
         for collection in &self.collections {
             self.save_collection_to_disk(collection);
@@ -4106,6 +4114,22 @@ impl App {
     fn save_collection(&self, index: usize) {
         if let Some(collection) = self.collections.get(index) {
             self.save_collection_to_disk(collection);
+        }
+    }
+
+    /// Load filter history from disk
+    fn load_filter_history(path: &std::path::Path) -> Vec<String> {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            serde_json::from_str(&content).unwrap_or_default()
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Save filter history to disk
+    fn save_filter_history(&self) {
+        if let Ok(content) = serde_json::to_string_pretty(&self.filter_history) {
+            let _ = std::fs::write(&self.config.filter_history_file, content);
         }
     }
 

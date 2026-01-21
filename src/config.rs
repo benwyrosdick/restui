@@ -14,6 +14,8 @@ pub struct Config {
     pub environments_file: PathBuf,
     /// Settings file path
     pub settings_file: PathBuf,
+    /// Filter history file path
+    pub filter_history_file: PathBuf,
 }
 
 impl Config {
@@ -28,6 +30,7 @@ impl Config {
         let history_file = base_dir.join("history.json");
         let environments_file = base_dir.join("environments.json");
         let settings_file = base_dir.join("settings.json");
+        let filter_history_file = base_dir.join("filter_history.json");
 
         Ok(Self {
             data_dir: base_dir,
@@ -35,6 +38,7 @@ impl Config {
             history_file,
             environments_file,
             settings_file,
+            filter_history_file,
         })
     }
 
