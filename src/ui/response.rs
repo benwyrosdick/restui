@@ -54,7 +54,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
             draw_status(frame, app, response, chunks[0], accent);
 
             // Response body with syntax highlighting
-            draw_body(frame, app, response, chunks[1], accent);
+            draw_body(frame, app, chunks[1], accent);
 
             // Search/filter status bar
             if show_status_bar {
@@ -117,25 +117,34 @@ fn draw_status(
     frame.render_widget(para, area);
 }
 
-fn draw_body(
-    frame: &mut Frame,
-    app: &App,
-    response: &crate::http::HttpResponse,
-    area: Rect,
-    accent: Color,
-) {
-    // Use filtered content if available, otherwise pretty print the response
-    let display_content = if let Some(filtered) = &app.response_filtered_content {
-        filtered.clone()
-    } else {
-        response.pretty_body()
-    };
+fn draw_body(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
+    // Get content source - use filtered if available, otherwise cached lines
+    let (content_lines, total_lines): (Vec<&str>, usize) =
+        if let Some(filtered) = &app.response_filtered_content {
+            let lines: Vec<&str> = filtered.lines().collect();
+            let count = lines.len();
+            (lines, count)
+        } else {
+            let lines: Vec<&str> = app.response_lines.iter().map(|s| s.as_str()).collect();
+            let count = lines.len();
+            (lines, count)
+        };
+
+    // Calculate visible viewport for efficient rendering
+    // Only process lines that will actually be displayed
+    let visible_height = area.height.saturating_sub(1) as usize; // -1 for border
+    let scroll_pos = app.response_scroll as usize;
+    let start_line = scroll_pos;
+    let end_line = (scroll_pos + visible_height + 1).min(total_lines); // +1 for partial lines
 
     let search_query = app.response_search_query.to_lowercase();
 
-    let lines: Vec<Line> = display_content
-        .lines()
+    // Only process visible lines - this is the key optimization
+    let lines: Vec<Line> = content_lines
+        .iter()
         .enumerate()
+        .skip(start_line)
+        .take(end_line - start_line)
         .map(|(line_num, line)| {
             let is_match = app.response_search_matches.contains(&line_num);
             let is_current_match = is_match
@@ -144,9 +153,8 @@ fn draw_body(
                     .get(app.response_current_match)
                     == Some(&line_num);
 
-            // Basic JSON syntax highlighting
+            // Basic JSON syntax highlighting - only for visible lines
             let styled_line = if is_match && !search_query.is_empty() {
-                // Highlight search matches within the line
                 highlight_json_line_with_search(line, &search_query, accent)
             } else {
                 highlight_json_line(line)
@@ -165,10 +173,8 @@ fn draw_body(
         })
         .collect();
 
-    let total_lines = lines.len() as u16;
-
+    // Use a Paragraph that doesn't need to scroll since we've already sliced the content
     let para = Paragraph::new(lines)
-        .scroll((app.response_scroll, 0))
         .wrap(Wrap { trim: false })
         .block(
             Block::default()
@@ -180,13 +186,14 @@ fn draw_body(
     frame.render_widget(para, area);
 
     // Render scrollbar if content is larger than area
-    if total_lines > area.height {
+    let total_lines_u16 = total_lines as u16;
+    if total_lines_u16 > area.height {
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
             .begin_symbol(Some("↑"))
             .end_symbol(Some("↓"));
 
         let mut scrollbar_state =
-            ScrollbarState::new(total_lines as usize).position(app.response_scroll as usize);
+            ScrollbarState::new(total_lines).position(app.response_scroll as usize);
 
         frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
     }

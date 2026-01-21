@@ -327,6 +327,7 @@ pub struct App {
 
     // Response state
     pub response: Option<HttpResponse>,
+    pub response_lines: Vec<String>, // Cached pretty-printed lines for efficient rendering
     pub is_loading: bool,
     pub spinner_index: usize,
     pub spinner_last_tick: Instant,
@@ -438,6 +439,7 @@ impl App {
             current_request: ApiRequest::default(),
             current_request_source: None,
             response: None,
+            response_lines: Vec::new(),
             is_loading: false,
             spinner_index: 0,
             spinner_last_tick: Instant::now(),
@@ -1429,6 +1431,26 @@ impl App {
         self.theme().selection_fg
     }
 
+    /// Get the display lines for the response (filtered if filter is active, otherwise cached pretty lines)
+    pub fn response_display_lines(&self) -> &[String] {
+        // If there's filtered content, we need to compute lines from it
+        // Otherwise use the cached pretty-printed lines
+        &self.response_lines
+    }
+
+    /// Get the total number of display lines for the response
+    pub fn response_line_count(&self) -> usize {
+        if self.response_filtered_content.is_some() {
+            // For filtered content, count lines from the filtered string
+            self.response_filtered_content
+                .as_ref()
+                .map(|c| c.lines().count())
+                .unwrap_or(0)
+        } else {
+            self.response_lines.len()
+        }
+    }
+
     /// Get the accent color based on the active environment (defaults to theme accent)
     pub fn accent_color(&self) -> Color {
         self.environments
@@ -1939,32 +1961,39 @@ impl App {
 
     /// Execute search on response body
     fn execute_search(&mut self) {
-        if let Some(response) = &self.response {
-            let body = if let Some(filtered) = &self.response_filtered_content {
-                filtered.clone()
-            } else {
-                response.pretty_body()
-            };
-            let query = self.response_search_query.to_lowercase();
+        if self.response.is_none() {
+            return;
+        }
 
-            if query.is_empty() {
-                self.response_search_matches.clear();
-                self.response_current_match = 0;
-                return;
-            }
+        let query = self.response_search_query.to_lowercase();
 
-            self.response_search_matches = body
+        if query.is_empty() {
+            self.response_search_matches.clear();
+            self.response_current_match = 0;
+            return;
+        }
+
+        // Use cached lines or filtered content
+        self.response_search_matches = if let Some(filtered) = &self.response_filtered_content {
+            filtered
                 .lines()
                 .enumerate()
                 .filter(|(_, line)| line.to_lowercase().contains(&query))
                 .map(|(i, _)| i)
-                .collect();
+                .collect()
+        } else {
+            self.response_lines
+                .iter()
+                .enumerate()
+                .filter(|(_, line)| line.to_lowercase().contains(&query))
+                .map(|(i, _)| i)
+                .collect()
+        };
 
-            // Jump to first match
-            if let Some(&first) = self.response_search_matches.first() {
-                self.response_scroll = first as u16;
-                self.response_current_match = 0;
-            }
+        // Jump to first match
+        if let Some(&first) = self.response_search_matches.first() {
+            self.response_scroll = first as u16;
+            self.response_current_match = 0;
         }
     }
 
@@ -3381,6 +3410,12 @@ impl App {
                     "{} {} - {}ms",
                     response.status, response.status_text, response.duration_ms
                 ));
+                // Cache pretty-printed lines for efficient rendering
+                self.response_lines = response
+                    .pretty_body()
+                    .lines()
+                    .map(String::from)
+                    .collect();
                 self.response = Some(response);
                 self.response_scroll = 0;
                 self.error_message = None;
@@ -3403,6 +3438,7 @@ impl App {
 
                 self.error_message = Some(format!("Request failed: {}", e));
                 self.response = None;
+                self.response_lines.clear();
             }
         }
 
