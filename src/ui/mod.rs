@@ -1,5 +1,6 @@
 mod dialog;
 mod env_popup;
+mod filter_history;
 mod help;
 mod layout;
 mod request_editor;
@@ -22,6 +23,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         env_popup::draw_env_popup(frame, app);
     } else if app.show_theme_popup {
         theme_popup::draw_theme_popup(frame, app);
+    } else if app.show_filter_history {
+        filter_history::draw_filter_history(frame, app);
     } else if app.show_help {
         help::draw_help(frame, app);
     }

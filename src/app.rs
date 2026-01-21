@@ -349,6 +349,11 @@ pub struct App {
     pub response_search_matches: Vec<usize>,
     pub response_current_match: usize,
 
+    // Filter history
+    pub filter_history: Vec<String>,
+    pub show_filter_history: bool,
+    pub filter_history_selected: usize,
+
     // Body scroll (for request body editor)
     pub body_scroll: u16,
 
@@ -447,6 +452,9 @@ impl App {
             response_filtered_content: None,
             response_search_matches: Vec::new(),
             response_current_match: 0,
+            filter_history: Vec::new(),
+            show_filter_history: false,
+            filter_history_selected: 0,
             body_scroll: 0,
             show_help: false,
             show_env_popup: false,
@@ -524,6 +532,11 @@ impl App {
         // If theme popup is showing, handle it first
         if self.show_theme_popup {
             return self.handle_theme_popup_input(key);
+        }
+
+        // If filter history popup is showing, handle it first
+        if self.show_filter_history {
+            return self.handle_filter_history_input(key);
         }
 
         // If env popup is showing, handle it first
@@ -699,6 +712,49 @@ impl App {
             KeyCode::Enter => {
                 self.apply_theme(self.theme_popup.selected_index);
                 self.close_theme_popup();
+            }
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    fn handle_filter_history_input(&mut self, key: KeyEvent) -> Result<bool> {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('F') => {
+                self.show_filter_history = false;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if self.filter_history_selected > 0 {
+                    self.filter_history_selected -= 1;
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if self.filter_history_selected + 1 < self.filter_history.len() {
+                    self.filter_history_selected += 1;
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(filter) = self.filter_history.get(self.filter_history_selected).cloned()
+                {
+                    self.response_filter_query = filter;
+                    self.execute_filter();
+                    self.show_filter_history = false;
+                }
+            }
+            KeyCode::Char('d') | KeyCode::Delete => {
+                // Delete the selected filter from history
+                if self.filter_history_selected < self.filter_history.len() {
+                    self.filter_history.remove(self.filter_history_selected);
+                    if self.filter_history_selected >= self.filter_history.len()
+                        && self.filter_history_selected > 0
+                    {
+                        self.filter_history_selected -= 1;
+                    }
+                    // Close popup if history is now empty
+                    if self.filter_history.is_empty() {
+                        self.show_filter_history = false;
+                    }
+                }
             }
             _ => {}
         }
@@ -1074,6 +1130,11 @@ impl App {
         // Close theme popup if showing
         if self.show_theme_popup {
             self.close_theme_popup();
+            return;
+        }
+        // Close filter history popup if showing
+        if self.show_filter_history {
+            self.show_filter_history = false;
             return;
         }
 
@@ -1584,6 +1645,14 @@ impl App {
                 }
             }
 
+            // Show filter history popup (in response view)
+            KeyCode::Char('F') if self.focused_panel == FocusedPanel::ResponseView => {
+                if self.response.is_some() && !self.filter_history.is_empty() {
+                    self.show_filter_history = true;
+                    self.filter_history_selected = 0;
+                }
+            }
+
             // Next/prev search match in response view
             KeyCode::Char('n')
                 if self.focused_panel == FocusedPanel::ResponseView
@@ -1913,12 +1982,24 @@ impl App {
                     self.response_scroll = 0;
                     self.response_search_matches.clear();
                     self.error_message = None;
+                    // Add to filter history if not already present
+                    self.add_to_filter_history(query.clone());
                 }
                 Err(e) => {
                     self.error_message = Some(format!("Filter error: {}", e));
                 }
             }
         }
+    }
+
+    /// Add a filter to history (avoiding duplicates, most recent first)
+    fn add_to_filter_history(&mut self, filter: String) {
+        // Remove if already exists (to move it to the front)
+        self.filter_history.retain(|f| f != &filter);
+        // Add to the front
+        self.filter_history.insert(0, filter);
+        // Keep only the last 20 filters
+        self.filter_history.truncate(20);
     }
 
     /// Jump to next search match
