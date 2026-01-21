@@ -3387,6 +3387,9 @@ impl App {
                 self.response_search_matches.clear();
                 self.response_current_match = 0;
                 self.response_mode = ResponseMode::Normal;
+
+                // Auto-focus response pane
+                self.focused_panel = FocusedPanel::ResponseView;
             }
             Err(e) => {
                 // Add failed request to history
