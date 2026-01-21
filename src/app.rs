@@ -3221,8 +3221,9 @@ impl App {
 
     fn save_current_request(&mut self) {
         if let Some((collection_idx, request_id)) = &self.current_request_source {
+            let collection_idx = *collection_idx;
             let request = self.current_request.clone();
-            if let Some(collection) = self.collections.get_mut(*collection_idx) {
+            if let Some(collection) = self.collections.get_mut(collection_idx) {
                 if collection.update_request(&request_id, |r| {
                     r.name = request.name.clone();
                     r.method = request.method.clone();
@@ -3232,6 +3233,7 @@ impl App {
                     r.body = request.body.clone();
                     r.auth = request.auth.clone();
                 }) {
+                    self.save_collection(collection_idx);
                     self.status_message = Some("Request saved".to_string());
                 } else {
                     self.error_message = Some("Failed to save request".to_string());
@@ -3435,6 +3437,8 @@ impl App {
             DialogType::CreateCollection => {
                 let collection = Collection::new(&name);
                 self.collections.push(collection);
+                let idx = self.collections.len() - 1;
+                self.save_collection(idx);
                 self.status_message = Some(format!("Created collection: {}", name));
             }
             DialogType::CreateFolder {
@@ -3443,6 +3447,7 @@ impl App {
             } => {
                 if let Some(collection) = self.collections.get_mut(parent_collection) {
                     collection.add_folder_to(&name, parent_folder_id.as_deref());
+                    self.save_collection(parent_collection);
                     self.status_message = Some(format!("Created folder: {}", name));
                 }
             }
@@ -3453,6 +3458,7 @@ impl App {
                 if let Some(collection) = self.collections.get_mut(parent_collection) {
                     let request = ApiRequest::new(&name);
                     collection.add_request_to(request, parent_folder_id.as_deref());
+                    self.save_collection(parent_collection);
                     self.status_message = Some(format!("Created request: {}", name));
                 }
             }
@@ -3464,12 +3470,14 @@ impl App {
                 ItemType::Collection => {
                     if let Some(collection) = self.collections.get_mut(collection_index) {
                         collection.rename(&name);
+                        self.save_collection(collection_index);
                         self.status_message = Some(format!("Renamed to: {}", name));
                     }
                 }
                 ItemType::Folder | ItemType::Request => {
                     if let Some(collection) = self.collections.get_mut(collection_index) {
                         collection.rename_item(&item_id, &name);
+                        self.save_collection(collection_index);
                         self.status_message = Some(format!("Renamed to: {}", name));
                     }
                 }
@@ -3520,6 +3528,7 @@ impl App {
             ItemType::Folder | ItemType::Request => {
                 if let Some(collection) = self.collections.get_mut(collection_index) {
                     collection.delete_item(&item_id);
+                    self.save_collection(collection_index);
                     // Adjust selected_item if needed (but not if header is selected)
                     if self.selected_item != usize::MAX {
                         let max = self.get_visible_items_count().saturating_sub(1);
@@ -3658,6 +3667,7 @@ impl App {
         } else {
             collection.add_request(new_request);
         }
+        self.save_collection(self.selected_collection);
 
         self.status_message = Some("Request duplicated".to_string());
     }
@@ -3742,8 +3752,11 @@ impl App {
 
         if dest_collection.insert_item(item, dest_folder_id.as_deref()) {
             self.status_message = Some(format!("Moved: {}", pending.item_name));
-            // Save both collections
-            let _ = self.save();
+            // Save affected collections
+            self.save_collection(pending.source_collection_index);
+            if dest_collection_index != pending.source_collection_index {
+                self.save_collection(dest_collection_index);
+            }
         } else {
             self.error_message = Some("Failed to move item to destination".to_string());
         }
@@ -3988,14 +4001,28 @@ impl App {
 
         // Save collections
         for collection in &self.collections {
-            let path = self
-                .config
-                .collections_dir
-                .join(format!("{}.json", collection.id));
-            collection.save(&path)?;
+            self.save_collection_to_disk(collection);
         }
 
         Ok(())
+    }
+
+    /// Save a single collection to disk
+    fn save_collection_to_disk(&self, collection: &Collection) {
+        let path = self
+            .config
+            .collections_dir
+            .join(format!("{}.json", collection.id));
+        if let Err(e) = collection.save(&path) {
+            tracing::error!("Failed to save collection {}: {}", collection.name, e);
+        }
+    }
+
+    /// Save a collection by index
+    fn save_collection(&self, index: usize) {
+        if let Some(collection) = self.collections.get(index) {
+            self.save_collection_to_disk(collection);
+        }
     }
 
     /// Get contextual help based on current state
