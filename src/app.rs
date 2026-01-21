@@ -1083,6 +1083,7 @@ impl App {
                 if self.show_history {
                     let max = self.history.entries.len().saturating_sub(1);
                     self.selected_history = relative_y.min(max);
+                    self.load_selected_history_request();
                 } else {
                     // Map visual row to (collection_index, item_index)
                     // Visual rows: collection headers + their items
@@ -1103,6 +1104,7 @@ impl App {
                                 // Clicked on an item in this collection
                                 self.selected_collection = col_idx;
                                 self.selected_item = relative_y - visual_row;
+                                self.load_selected_request();
                                 return;
                             }
                             visual_row += item_count;
@@ -1372,16 +1374,12 @@ impl App {
             // Enter to select/edit
             KeyCode::Enter => self.handle_enter().await?,
 
-            // Send request (lowercase 's' everywhere except RequestList, uppercase 'S' except ResponseView where it saves)
+            // Send request (lowercase 's' everywhere, uppercase 'S' except ResponseView where it saves)
             KeyCode::Char('s') => {
-                if self.focused_panel != FocusedPanel::RequestList {
-                    self.send_request().await?;
-                }
+                self.send_request().await?;
             }
             KeyCode::Char('S') if self.focused_panel != FocusedPanel::ResponseView => {
-                if self.focused_panel != FocusedPanel::RequestList {
-                    self.send_request().await?;
-                }
+                self.send_request().await?;
             }
 
             // Toggle history view
@@ -2116,8 +2114,10 @@ impl App {
             FocusedPanel::RequestList => {
                 if self.show_history {
                     self.selected_history = self.selected_history.saturating_sub(1);
+                    self.load_selected_history_request();
                 } else {
                     self.navigate_collection_up();
+                    self.load_selected_request();
                 }
             }
             FocusedPanel::ResponseView => {
@@ -2142,8 +2142,10 @@ impl App {
                 if self.show_history {
                     let max = self.history.entries.len().saturating_sub(1);
                     self.selected_history = (self.selected_history + 1).min(max);
+                    self.load_selected_history_request();
                 } else {
                     self.navigate_collection_down();
+                    self.load_selected_request();
                 }
             }
             FocusedPanel::ResponseView => {
@@ -2275,19 +2277,28 @@ impl App {
         match self.focused_panel {
             FocusedPanel::RequestList => {
                 if self.show_history {
-                    // Load request from history
-                    if let Some(entry) = self.history.entries.get(self.selected_history) {
-                        self.current_request = entry.request.clone();
-                        self.response = None;
-                        self.selected_param_index = 0;
-                        self.selected_header_index = 0;
-                        self.body_scroll = 0;
-                        self.focused_panel = FocusedPanel::UrlBar;
-                    }
-                } else {
-                    // Load selected request from collection
-                    self.load_selected_request();
+                    // History request already loaded on selection, just move focus
                     self.focused_panel = FocusedPanel::UrlBar;
+                } else if self.is_collection_header_selected() {
+                    // Toggle collection expansion
+                    if let Some(collection) = self.collections.get_mut(self.selected_collection) {
+                        collection.expanded = !collection.expanded;
+                    }
+                } else if let Some(collection) = self.collections.get(self.selected_collection) {
+                    // Check if selected item is a folder or request
+                    let flattened = collection.flatten();
+                    if let Some((_, item)) = flattened.get(self.selected_item) {
+                        match item {
+                            CollectionItem::Folder { .. } => {
+                                // Toggle folder expansion
+                                self.toggle_expand_collapse();
+                            }
+                            CollectionItem::Request(_) => {
+                                // Request already loaded on selection, just move focus
+                                self.focused_panel = FocusedPanel::UrlBar;
+                            }
+                        }
+                    }
                 }
             }
             FocusedPanel::UrlBar => {
@@ -2424,6 +2435,17 @@ impl App {
         }
     }
 
+    fn load_selected_history_request(&mut self) {
+        if let Some(entry) = self.history.entries.get(self.selected_history) {
+            self.current_request = entry.request.clone();
+            self.current_request_source = None; // History items aren't linked to collections
+            self.response = None;
+            self.selected_param_index = 0;
+            self.selected_header_index = 0;
+            self.body_scroll = 0;
+        }
+    }
+
     fn get_visible_items_count(&self) -> usize {
         self.collections
             .get(self.selected_collection)
@@ -2438,6 +2460,8 @@ impl App {
         self.selected_param_index = 0;
         self.selected_header_index = 0;
         self.body_scroll = 0;
+        // Clear selection in request list (no item selected)
+        self.selected_item = usize::MAX;
         self.focused_panel = FocusedPanel::UrlBar;
         self.input_mode = InputMode::Editing;
         self.set_editing_field(EditingField::Url);
