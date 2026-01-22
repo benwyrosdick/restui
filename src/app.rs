@@ -483,7 +483,8 @@ impl App {
                 let entry = entry?;
                 let path = entry.path();
                 if path.extension().map_or(false, |ext| ext == "json") {
-                    if let Ok(collection) = Collection::load(&path) {
+                    if let Ok(mut collection) = Collection::load(&path) {
+                        collection.sort_items();
                         collections.push(collection);
                     }
                 }
@@ -505,6 +506,9 @@ impl App {
 
             collections.push(sample);
         }
+
+        // Sort collections alphabetically by name
+        collections.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
 
         Ok(collections)
     }

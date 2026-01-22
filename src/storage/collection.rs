@@ -103,6 +103,35 @@ impl Collection {
         self.items.push(CollectionItem::new_folder(name));
     }
 
+    /// Sort all items alphabetically (folders first, then requests)
+    pub fn sort_items(&mut self) {
+        Self::sort_items_recursive(&mut self.items);
+    }
+
+    fn sort_items_recursive(items: &mut [CollectionItem]) {
+        // Sort: folders first (alphabetically), then requests (alphabetically)
+        items.sort_by(|a, b| {
+            match (a, b) {
+                // Folders come before requests
+                (CollectionItem::Folder { .. }, CollectionItem::Request(_)) => {
+                    std::cmp::Ordering::Less
+                }
+                (CollectionItem::Request(_), CollectionItem::Folder { .. }) => {
+                    std::cmp::Ordering::Greater
+                }
+                // Same type: sort alphabetically by name (case-insensitive)
+                _ => a.name().to_lowercase().cmp(&b.name().to_lowercase()),
+            }
+        });
+
+        // Recursively sort folder contents
+        for item in items.iter_mut() {
+            if let CollectionItem::Folder { items, .. } = item {
+                Self::sort_items_recursive(items);
+            }
+        }
+    }
+
     /// Get a flat list of all requests in the collection (for display)
     pub fn flatten(&self) -> Vec<(usize, &CollectionItem)> {
         let mut result = Vec::new();
