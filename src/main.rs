@@ -40,7 +40,7 @@ fn print_version() {
     println!("restui {}", env!("CARGO_PKG_VERSION"));
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     // Handle command line arguments
     let args: Vec<String> = std::env::args().collect();
@@ -113,55 +113,93 @@ async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> Result<()> {
+    let mut skip_events_until_focus = false;
+
     loop {
         terminal.draw(|frame| ui::draw(frame, app))?;
 
         // Poll for events with a timeout to allow async operations
-        if event::poll(Duration::from_millis(100))? {
-            match event::read()? {
-                Event::Key(key) => {
-                    if key.kind == KeyEventKind::Press {
-                        match app.handle_key(key).await {
-                            Ok(should_quit) => {
-                                if should_quit {
-                                    return Ok(());
+        match event::poll(Duration::from_millis(100)) {
+            Ok(true) => {
+                match event::read() {
+                    Ok(evt) => {
+                        // If we lost focus, skip all events until we regain it
+                        // This helps avoid processing garbage data from corrupted terminal state
+                        if skip_events_until_focus {
+                            if matches!(evt, Event::FocusGained) {
+                                skip_events_until_focus = false;
+                                // Re-establish terminal state
+                                let _ = execute!(
+                                    terminal.backend_mut(),
+                                    EnableMouseCapture,
+                                    EnableFocusChange
+                                );
+                            }
+                            continue;
+                        }
+
+                        match evt {
+                            Event::Key(key) => {
+                                if key.kind == KeyEventKind::Press {
+                                    match app.handle_key(key).await {
+                                        Ok(should_quit) => {
+                                            if should_quit {
+                                                return Ok(());
+                                            }
+                                        }
+                                        Err(e) => {
+                                            app.set_error(format!("Error: {e}"));
+                                        }
+                                    }
                                 }
                             }
-                            Err(e) => {
-                                app.set_error(format!("Error: {e}"));
+                            Event::Mouse(mouse) => match mouse.kind {
+                                MouseEventKind::Down(MouseButton::Left) => {
+                                    app.handle_mouse_click(mouse.column, mouse.row);
+                                }
+                                MouseEventKind::Drag(MouseButton::Left) => {
+                                    app.handle_mouse_drag(mouse.column, mouse.row);
+                                }
+                                MouseEventKind::ScrollUp => {
+                                    app.handle_scroll(mouse.column, mouse.row, true);
+                                }
+                                MouseEventKind::ScrollDown => {
+                                    app.handle_scroll(mouse.column, mouse.row, false);
+                                }
+                                _ => {}
+                            },
+                            Event::FocusGained => {
+                                // Re-establish terminal state when returning from screensaver/sleep
+                                let _ = execute!(
+                                    terminal.backend_mut(),
+                                    EnableMouseCapture,
+                                    EnableFocusChange
+                                );
                             }
+                            Event::FocusLost => {
+                                // Terminal lost focus - skip events until we regain focus
+                                // This helps avoid processing corrupted data after sleep/screensaver
+                                skip_events_until_focus = true;
+                            }
+                            _ => {}
                         }
                     }
+                    Err(_) => {
+                        // Event read error - could be corrupted terminal state
+                        // Try to recover by re-establishing terminal mode
+                        let _ = execute!(
+                            terminal.backend_mut(),
+                            EnableMouseCapture,
+                            EnableFocusChange
+                        );
+                    }
                 }
-                Event::Mouse(mouse) => match mouse.kind {
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        app.handle_mouse_click(mouse.column, mouse.row);
-                    }
-                    MouseEventKind::Drag(MouseButton::Left) => {
-                        app.handle_mouse_drag(mouse.column, mouse.row);
-                    }
-                    MouseEventKind::ScrollUp => {
-                        app.handle_scroll(mouse.column, mouse.row, true);
-                    }
-                    MouseEventKind::ScrollDown => {
-                        app.handle_scroll(mouse.column, mouse.row, false);
-                    }
-                    _ => {}
-                },
-                Event::FocusGained => {
-                    // Re-establish terminal state when returning from screensaver/sleep
-                    // This helps recover from corrupted terminal state
-                    let _ = execute!(
-                        terminal.backend_mut(),
-                        EnableMouseCapture,
-                        EnableFocusChange
-                    );
-                }
-                Event::FocusLost => {
-                    // Terminal lost focus (e.g., screensaver activated)
-                    // Nothing special needed here, but we could pause animations
-                }
-                _ => {}
+            }
+            Ok(false) => {
+                // No events available, continue to tick
+            }
+            Err(_) => {
+                // Poll error - try to continue
             }
         }
 
