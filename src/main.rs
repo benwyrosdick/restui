@@ -11,15 +11,19 @@ use anyhow::Result;
 use app::App;
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind, MouseButton,
-        MouseEventKind,
+        self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture,
+        Event, KeyEventKind, MouseButton, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io;
+use std::io::{self, Write};
+use std::panic;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+static TERMINAL_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 fn print_help() {
     println!("restui - A TUI API testing tool like Postman");
@@ -66,10 +70,27 @@ async fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .init();
 
+    // Set up panic hook to restore terminal on panic
+    let original_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        // Only restore if terminal was initialized
+        if TERMINAL_INITIALIZED.load(Ordering::SeqCst) {
+            restore_terminal();
+        }
+        // Call the original panic hook
+        original_hook(panic_info);
+    }));
+
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableFocusChange
+    )?;
+    TERMINAL_INITIALIZED.store(true, Ordering::SeqCst);
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -77,13 +98,8 @@ async fn main() -> Result<()> {
     let mut app = App::new().await?;
     let result = run_app(&mut terminal, &mut app).await;
 
-    // Restore terminal
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    // Restore terminal (also show cursor which restore_terminal doesn't do)
+    restore_terminal();
     terminal.show_cursor()?;
 
     if let Err(err) = result {
@@ -132,6 +148,19 @@ async fn run_app(
                     }
                     _ => {}
                 },
+                Event::FocusGained => {
+                    // Re-establish terminal state when returning from screensaver/sleep
+                    // This helps recover from corrupted terminal state
+                    let _ = execute!(
+                        terminal.backend_mut(),
+                        EnableMouseCapture,
+                        EnableFocusChange
+                    );
+                }
+                Event::FocusLost => {
+                    // Terminal lost focus (e.g., screensaver activated)
+                    // Nothing special needed here, but we could pause animations
+                }
                 _ => {}
             }
         }
@@ -139,4 +168,17 @@ async fn run_app(
         // Process any pending async operations
         app.tick().await?;
     }
+}
+
+/// Restore terminal to normal state
+/// This is called on panic and normal exit to ensure terminal is usable
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(
+        io::stdout(),
+        LeaveAlternateScreen,
+        DisableMouseCapture,
+        DisableFocusChange
+    );
+    let _ = io::stdout().flush();
 }
