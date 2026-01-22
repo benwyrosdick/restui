@@ -4200,7 +4200,6 @@ impl App {
                         help.push(("", "── Request List ──"));
                         help.push(("j / ↓", "Move down"));
                         help.push(("k / ↑", "Move up"));
-                        help.push(("Enter", "Load request"));
                         help.push(("Space", "Toggle expand/collapse"));
                         help.push(("H", "Toggle history view"));
                         help.push(("n", "New request (in editor)"));
