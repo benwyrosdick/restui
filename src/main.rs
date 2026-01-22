@@ -40,7 +40,7 @@ fn print_version() {
     println!("restui {}", env!("CARGO_PKG_VERSION"));
 }
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<()> {
     // Handle command line arguments
     let args: Vec<String> = std::env::args().collect();
