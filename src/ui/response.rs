@@ -148,10 +148,7 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         .map(|(line_num, line)| {
             let is_match = app.response_search_matches.contains(&line_num);
             let is_current_match = is_match
-                && app
-                    .response_search_matches
-                    .get(app.response_current_match)
-                    == Some(&line_num);
+                && app.response_search_matches.get(app.response_current_match) == Some(&line_num);
 
             // Basic JSON syntax highlighting - only for visible lines
             let styled_line = if is_match && !search_query.is_empty() {
@@ -174,14 +171,12 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         .collect();
 
     // Use a Paragraph that doesn't need to scroll since we've already sliced the content
-    let para = Paragraph::new(lines)
-        .wrap(Wrap { trim: false })
-        .block(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(app.theme_muted_color()))
-                .style(Style::default().bg(app.theme_surface_color())),
-        );
+    let para = Paragraph::new(lines).wrap(Wrap { trim: false }).block(
+        Block::default()
+            .borders(Borders::TOP)
+            .border_style(Style::default().fg(app.theme_muted_color()))
+            .style(Style::default().bg(app.theme_surface_color())),
+    );
 
     frame.render_widget(para, area);
 
@@ -207,12 +202,16 @@ fn draw_search_bar(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     if is_input_mode {
         // Active input mode - show editable query with cursor
         let (prefix, query, cursor_pos) = match app.response_mode {
-            ResponseMode::Search => {
-                ("/", &app.response_search_query, app.response_cursor_position)
-            }
-            ResponseMode::Filter => {
-                ("jq: ", &app.response_filter_query, app.response_cursor_position)
-            }
+            ResponseMode::Search => (
+                "/",
+                &app.response_search_query,
+                app.response_cursor_position,
+            ),
+            ResponseMode::Filter => (
+                "jq: ",
+                &app.response_filter_query,
+                app.response_cursor_position,
+            ),
             ResponseMode::Normal => unreachable!(),
         };
 

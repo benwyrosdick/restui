@@ -196,16 +196,8 @@ fn draw_confirm_delete_dialog(
     );
 }
 
-fn draw_confirm_overwrite_dialog(
-    frame: &mut Frame,
-    app: &App,
-    path: &PathBuf,
-    accent: Color,
-) {
-    let filename = path
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
+fn draw_confirm_overwrite_dialog(frame: &mut Frame, app: &App, path: &PathBuf, accent: Color) {
+    let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
 
     let popup_width = 55;
     let popup_height = 10;

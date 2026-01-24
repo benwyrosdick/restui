@@ -373,6 +373,12 @@ pub struct App {
     // Selected header index for navigation in Headers tab
     pub selected_header_index: usize,
 
+    // Request list search state
+    pub request_list_search_active: bool,
+    pub request_list_search_query: String,
+    pub request_list_search_cursor: usize,
+    pub request_list_filtered_selection: usize, // Index in filtered results
+
     // Dialog state
     pub dialog: DialogState,
     pub layout_areas: LayoutAreas,
@@ -466,6 +472,10 @@ impl App {
             theme_popup: ThemePopupState::default(),
             selected_param_index: 0,
             selected_header_index: 0,
+            request_list_search_active: false,
+            request_list_search_query: String::new(),
+            request_list_search_cursor: 0,
+            request_list_filtered_selection: 0,
             dialog: DialogState::default(),
             layout_areas: LayoutAreas::default(),
             pending_move: None,
@@ -554,6 +564,11 @@ impl App {
         // If in response search/filter mode, handle it first
         if self.response_mode != ResponseMode::Normal {
             return self.handle_response_mode_input(key);
+        }
+
+        // If in request list search mode, handle it first
+        if self.request_list_search_active {
+            return self.handle_request_list_search_input(key);
         }
 
         // Global shortcuts
@@ -741,7 +756,10 @@ impl App {
                 }
             }
             KeyCode::Enter => {
-                if let Some(filter) = self.filter_history.get(self.filter_history_selected).cloned()
+                if let Some(filter) = self
+                    .filter_history
+                    .get(self.filter_history_selected)
+                    .cloned()
                 {
                     self.response_filter_query = filter;
                     self.execute_filter();
@@ -1157,9 +1175,19 @@ impl App {
                 // Calculate which item was clicked (accounting for border)
                 let relative_y = y.saturating_sub(py + 1) as usize; // +1 for border
                 if self.show_history {
-                    let max = self.history.entries.len().saturating_sub(1);
+                    let filtered = self.filtered_history_indices();
+                    let max = filtered.len().saturating_sub(1);
                     self.selected_history = relative_y.min(max);
-                    self.load_selected_history_request();
+                    self.load_selected_history_request_filtered();
+                } else if self.has_request_list_filter() {
+                    // Filtered collection click - map to filtered items
+                    let filtered = self.filtered_collection_items();
+                    // Account for collection headers in visual row count
+                    // The display shows: collection headers + matching requests with parent folders
+                    // For simplicity, just use the row as selection index (approximate)
+                    let max = filtered.len().saturating_sub(1);
+                    self.request_list_filtered_selection = relative_y.min(max);
+                    self.load_filtered_collection_request();
                 } else {
                     // Map visual row to (collection_index, item_index)
                     // Visual rows: collection headers + their items
@@ -1263,7 +1291,8 @@ impl App {
                                                 break;
                                             }
                                             if i < lines.len() - 1 {
-                                                char_pos += line.chars().count() + 1; // +1 for newline
+                                                char_pos += line.chars().count() + 1;
+                                                // +1 for newline
                                             }
                                         }
 
@@ -1502,8 +1531,7 @@ impl App {
 
         // Clear search/filter in ResponseView with Esc
         if key.code == KeyCode::Esc && self.focused_panel == FocusedPanel::ResponseView {
-            if !self.response_search_matches.is_empty()
-                || self.response_filtered_content.is_some()
+            if !self.response_search_matches.is_empty() || self.response_filtered_content.is_some()
             {
                 self.response_search_query.clear();
                 self.response_filter_query.clear();
@@ -1512,6 +1540,15 @@ impl App {
                 self.response_current_match = 0;
                 return Ok(false);
             }
+        }
+
+        // Clear search filter in RequestList with Esc
+        if key.code == KeyCode::Esc
+            && self.focused_panel == FocusedPanel::RequestList
+            && self.has_request_list_filter()
+        {
+            self.clear_request_list_filter();
+            return Ok(false);
         }
 
         match key.code {
@@ -1704,6 +1741,13 @@ impl App {
                 self.format_body();
             }
 
+            // Search in request list
+            KeyCode::Char('/') if self.focused_panel == FocusedPanel::RequestList => {
+                self.request_list_search_active = true;
+                self.request_list_search_query.clear();
+                self.request_list_search_cursor = 0;
+            }
+
             // CRUD operations (only in RequestList panel)
             // Uppercase = Create: C (collection), F (folder), R (request)
             // Lowercase = Actions: r (rename), d (delete), p (duplicate), m (move)
@@ -1886,40 +1930,38 @@ impl App {
                     ResponseMode::Normal => {}
                 }
             }
-            KeyCode::Backspace => {
-                match self.response_mode {
-                    ResponseMode::Search => {
-                        if self.response_cursor_position > 0 {
-                            self.response_search_query
-                                .remove(self.response_cursor_position - 1);
-                            self.response_cursor_position -= 1;
-                        }
+            KeyCode::Backspace => match self.response_mode {
+                ResponseMode::Search => {
+                    if self.response_cursor_position > 0 {
+                        self.response_search_query
+                            .remove(self.response_cursor_position - 1);
+                        self.response_cursor_position -= 1;
                     }
-                    ResponseMode::Filter => {
-                        if self.response_cursor_position > 0 {
-                            self.response_filter_query
-                                .remove(self.response_cursor_position - 1);
-                            self.response_cursor_position -= 1;
-                        }
-                    }
-                    ResponseMode::Normal => {}
                 }
-            }
-            KeyCode::Delete => {
-                match self.response_mode {
-                    ResponseMode::Search => {
-                        if self.response_cursor_position < self.response_search_query.len() {
-                            self.response_search_query.remove(self.response_cursor_position);
-                        }
+                ResponseMode::Filter => {
+                    if self.response_cursor_position > 0 {
+                        self.response_filter_query
+                            .remove(self.response_cursor_position - 1);
+                        self.response_cursor_position -= 1;
                     }
-                    ResponseMode::Filter => {
-                        if self.response_cursor_position < self.response_filter_query.len() {
-                            self.response_filter_query.remove(self.response_cursor_position);
-                        }
-                    }
-                    ResponseMode::Normal => {}
                 }
-            }
+                ResponseMode::Normal => {}
+            },
+            KeyCode::Delete => match self.response_mode {
+                ResponseMode::Search => {
+                    if self.response_cursor_position < self.response_search_query.len() {
+                        self.response_search_query
+                            .remove(self.response_cursor_position);
+                    }
+                }
+                ResponseMode::Filter => {
+                    if self.response_cursor_position < self.response_filter_query.len() {
+                        self.response_filter_query
+                            .remove(self.response_cursor_position);
+                    }
+                }
+                ResponseMode::Normal => {}
+            },
             KeyCode::Left => {
                 self.response_cursor_position = self.response_cursor_position.saturating_sub(1);
             }
@@ -1943,20 +1985,80 @@ impl App {
                     ResponseMode::Normal => 0,
                 };
             }
-            KeyCode::Char(c) => {
-                match self.response_mode {
-                    ResponseMode::Search => {
-                        self.response_search_query
-                            .insert(self.response_cursor_position, c);
-                        self.response_cursor_position += 1;
-                    }
-                    ResponseMode::Filter => {
-                        self.response_filter_query
-                            .insert(self.response_cursor_position, c);
-                        self.response_cursor_position += 1;
-                    }
-                    ResponseMode::Normal => {}
+            KeyCode::Char(c) => match self.response_mode {
+                ResponseMode::Search => {
+                    self.response_search_query
+                        .insert(self.response_cursor_position, c);
+                    self.response_cursor_position += 1;
                 }
+                ResponseMode::Filter => {
+                    self.response_filter_query
+                        .insert(self.response_cursor_position, c);
+                    self.response_cursor_position += 1;
+                }
+                ResponseMode::Normal => {}
+            },
+            _ => {}
+        }
+        Ok(false)
+    }
+
+    /// Handle input while in request list search mode
+    fn handle_request_list_search_input(&mut self, key: KeyEvent) -> Result<bool> {
+        match key.code {
+            KeyCode::Esc => {
+                self.request_list_search_active = false;
+                self.request_list_search_query.clear();
+            }
+            KeyCode::Enter => {
+                // Confirm search and exit search mode but keep filter active
+                self.request_list_search_active = false;
+            }
+            KeyCode::Backspace => {
+                if self.request_list_search_cursor > 0 {
+                    self.request_list_search_query
+                        .remove(self.request_list_search_cursor - 1);
+                    self.request_list_search_cursor -= 1;
+                    // Reset selection and load first result
+                    self.selected_history = 0;
+                    self.request_list_filtered_selection = 0;
+                    self.load_first_filtered_result();
+                }
+            }
+            KeyCode::Delete => {
+                if self.request_list_search_cursor < self.request_list_search_query.len() {
+                    self.request_list_search_query
+                        .remove(self.request_list_search_cursor);
+                    // Reset selection and load first result
+                    self.selected_history = 0;
+                    self.request_list_filtered_selection = 0;
+                    self.load_first_filtered_result();
+                }
+            }
+            KeyCode::Left => {
+                if self.request_list_search_cursor > 0 {
+                    self.request_list_search_cursor -= 1;
+                }
+            }
+            KeyCode::Right => {
+                if self.request_list_search_cursor < self.request_list_search_query.len() {
+                    self.request_list_search_cursor += 1;
+                }
+            }
+            KeyCode::Home => {
+                self.request_list_search_cursor = 0;
+            }
+            KeyCode::End => {
+                self.request_list_search_cursor = self.request_list_search_query.len();
+            }
+            KeyCode::Char(c) => {
+                self.request_list_search_query
+                    .insert(self.request_list_search_cursor, c);
+                self.request_list_search_cursor += 1;
+                // Reset selection and load first result
+                self.selected_history = 0;
+                self.request_list_filtered_selection = 0;
+                self.load_first_filtered_result();
             }
             _ => {}
         }
@@ -2047,7 +2149,10 @@ impl App {
         }
         self.response_current_match =
             (self.response_current_match + 1) % self.response_search_matches.len();
-        if let Some(&line) = self.response_search_matches.get(self.response_current_match) {
+        if let Some(&line) = self
+            .response_search_matches
+            .get(self.response_current_match)
+        {
             self.response_scroll = line as u16;
         }
     }
@@ -2062,7 +2167,10 @@ impl App {
         } else {
             self.response_current_match -= 1;
         }
-        if let Some(&line) = self.response_search_matches.get(self.response_current_match) {
+        if let Some(&line) = self
+            .response_search_matches
+            .get(self.response_current_match)
+        {
             self.response_scroll = line as u16;
         }
     }
@@ -2385,7 +2493,11 @@ impl App {
 
         // Convert char positions to byte positions
         let byte_start = text.char_indices().nth(start).map(|(i, _)| i).unwrap_or(0);
-        let byte_end = text.char_indices().nth(end).map(|(i, _)| i).unwrap_or(text.len());
+        let byte_end = text
+            .char_indices()
+            .nth(end)
+            .map(|(i, _)| i)
+            .unwrap_or(text.len());
 
         Some(text[byte_start..byte_end].to_string())
     }
@@ -2402,7 +2514,11 @@ impl App {
         if let Some(text) = self.get_current_field_mut() {
             // Convert char positions to byte positions
             let byte_start = text.char_indices().nth(start).map(|(i, _)| i).unwrap_or(0);
-            let byte_end = text.char_indices().nth(end).map(|(i, _)| i).unwrap_or(text.len());
+            let byte_end = text
+                .char_indices()
+                .nth(end)
+                .map(|(i, _)| i)
+                .unwrap_or(text.len());
             text.replace_range(byte_start..byte_end, "");
         }
         self.cursor_position = start;
@@ -2500,7 +2616,12 @@ impl App {
             FocusedPanel::RequestList => {
                 if self.show_history {
                     self.selected_history = self.selected_history.saturating_sub(1);
-                    self.load_selected_history_request();
+                    self.load_selected_history_request_filtered();
+                } else if self.has_request_list_filter() {
+                    // Filtered collection navigation
+                    self.request_list_filtered_selection =
+                        self.request_list_filtered_selection.saturating_sub(1);
+                    self.load_filtered_collection_request();
                 } else {
                     self.navigate_collection_up();
                     self.load_selected_request();
@@ -2526,9 +2647,17 @@ impl App {
         match self.focused_panel {
             FocusedPanel::RequestList => {
                 if self.show_history {
-                    let max = self.history.entries.len().saturating_sub(1);
+                    let filtered = self.filtered_history_indices();
+                    let max = filtered.len().saturating_sub(1);
                     self.selected_history = (self.selected_history + 1).min(max);
-                    self.load_selected_history_request();
+                    self.load_selected_history_request_filtered();
+                } else if self.has_request_list_filter() {
+                    // Filtered collection navigation
+                    let filtered = self.filtered_collection_items();
+                    let max = filtered.len().saturating_sub(1);
+                    self.request_list_filtered_selection =
+                        (self.request_list_filtered_selection + 1).min(max);
+                    self.load_filtered_collection_request();
                 } else {
                     self.navigate_collection_down();
                     self.load_selected_request();
@@ -2552,9 +2681,72 @@ impl App {
         }
     }
 
+    /// Get filtered history entry indices based on current search filter
+    fn filtered_history_indices(&self) -> Vec<usize> {
+        if !self.has_request_list_filter() {
+            return (0..self.history.entries.len()).collect();
+        }
+        self.history
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                let path = entry
+                    .request
+                    .url
+                    .split("://")
+                    .nth(1)
+                    .and_then(|s| s.find('/').map(|i| &s[i..]))
+                    .unwrap_or(&entry.request.url);
+                self.matches_request_list_filter(path)
+                    || self.matches_request_list_filter(entry.request.method.as_str())
+                    || self.matches_request_list_filter(&entry.request.url)
+            })
+            .map(|(i, _)| i)
+            .collect()
+    }
+
     /// Check if collection header is selected (usize::MAX means header selected)
     pub fn is_collection_header_selected(&self) -> bool {
         self.selected_item == usize::MAX
+    }
+
+    /// Check if request list search filter is active (has query text)
+    pub fn has_request_list_filter(&self) -> bool {
+        !self.request_list_search_query.is_empty()
+    }
+
+    /// Check if a string matches the current request list search query (case-insensitive)
+    pub fn matches_request_list_filter(&self, text: &str) -> bool {
+        if self.request_list_search_query.is_empty() {
+            return true;
+        }
+        text.to_lowercase()
+            .contains(&self.request_list_search_query.to_lowercase())
+    }
+
+    /// Clear request list search filter
+    pub fn clear_request_list_filter(&mut self) {
+        self.request_list_search_query.clear();
+        self.request_list_search_cursor = 0;
+        self.request_list_filtered_selection = 0;
+    }
+
+    /// Get filtered collection items - returns (collection_idx, item_idx) for matching requests
+    pub fn filtered_collection_items(&self) -> Vec<(usize, usize)> {
+        let query_lower = self.request_list_search_query.to_lowercase();
+        let mut result = Vec::new();
+
+        for (col_idx, collection) in self.collections.iter().enumerate() {
+            for (item_idx, (_, item)) in collection.flatten().iter().enumerate() {
+                if let CollectionItem::Request(req) = item {
+                    if req.name.to_lowercase().contains(&query_lower) {
+                        result.push((col_idx, item_idx));
+                    }
+                }
+            }
+        }
+        result
     }
 
     fn navigate_collection_up(&mut self) {
@@ -2663,7 +2855,12 @@ impl App {
         match self.focused_panel {
             FocusedPanel::RequestList => {
                 if self.show_history {
-                    // History request already loaded on selection, just move focus
+                    // Load and focus the selected history item
+                    self.load_selected_history_request_filtered();
+                    self.focused_panel = FocusedPanel::UrlBar;
+                } else if self.has_request_list_filter() {
+                    // Filtered collection view - load the selected filtered item
+                    self.load_filtered_collection_request();
                     self.focused_panel = FocusedPanel::UrlBar;
                 } else if self.is_collection_header_selected() {
                     // Toggle collection expansion
@@ -2829,6 +3026,48 @@ impl App {
             self.selected_param_index = 0;
             self.selected_header_index = 0;
             self.body_scroll = 0;
+        }
+    }
+
+    /// Load history request using filtered index mapping
+    fn load_selected_history_request_filtered(&mut self) {
+        let filtered = self.filtered_history_indices();
+        if let Some(&original_idx) = filtered.get(self.selected_history) {
+            if let Some(entry) = self.history.entries.get(original_idx) {
+                self.current_request = entry.request.clone();
+                self.current_request_source = None;
+                self.response = None;
+                self.selected_param_index = 0;
+                self.selected_header_index = 0;
+                self.body_scroll = 0;
+            }
+        }
+    }
+
+    /// Load collection request using filtered index mapping
+    fn load_filtered_collection_request(&mut self) {
+        let filtered = self.filtered_collection_items();
+        if let Some(&(col_idx, item_idx)) = filtered.get(self.request_list_filtered_selection) {
+            if let Some(collection) = self.collections.get(col_idx) {
+                let flattened = collection.flatten();
+                if let Some((_, CollectionItem::Request(req))) = flattened.get(item_idx) {
+                    self.current_request = req.clone();
+                    self.current_request_source = Some((col_idx, req.id.clone()));
+                    self.response = None;
+                    self.selected_param_index = 0;
+                    self.selected_header_index = 0;
+                    self.body_scroll = 0;
+                }
+            }
+        }
+    }
+
+    /// Load the first filtered result (for collections or history)
+    fn load_first_filtered_result(&mut self) {
+        if self.show_history {
+            self.load_selected_history_request_filtered();
+        } else {
+            self.load_filtered_collection_request();
         }
     }
 
@@ -3001,10 +3240,7 @@ impl App {
         #[cfg(target_os = "linux")]
         {
             // Try wl-paste first (Wayland), then fall back to xclip (X11)
-            if let Ok(output) = std::process::Command::new("wl-paste")
-                .arg("-n")
-                .output()
-            {
+            if let Ok(output) = std::process::Command::new("wl-paste").arg("-n").output() {
                 if output.status.success() {
                     return Ok(String::from_utf8_lossy(&output.stdout).to_string());
                 }
@@ -3130,9 +3366,7 @@ impl App {
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("response");
-        let extension = original_path
-            .extension()
-            .and_then(|s| s.to_str());
+        let extension = original_path.extension().and_then(|s| s.to_str());
         let parent = original_path.parent();
 
         let mut counter = 1;
@@ -3415,11 +3649,7 @@ impl App {
                     response.status, response.status_text, response.duration_ms
                 ));
                 // Cache pretty-printed lines for efficient rendering
-                self.response_lines = response
-                    .pretty_body()
-                    .lines()
-                    .map(String::from)
-                    .collect();
+                self.response_lines = response.pretty_body().lines().map(String::from).collect();
                 self.response = Some(response);
                 self.response_scroll = 0;
                 self.error_message = None;

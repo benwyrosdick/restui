@@ -115,7 +115,11 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
             }),
         ));
 
-        let selection = if is_editing_key { app.get_selection_range() } else { None };
+        let selection = if is_editing_key {
+            app.get_selection_range()
+        } else {
+            None
+        };
         spans.extend(text_with_cursor_and_selection(
             &header.key,
             app.cursor_position,
@@ -127,7 +131,11 @@ fn draw_headers(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
         spans.push(Span::raw(": "));
 
-        let selection = if is_editing_value { app.get_selection_range() } else { None };
+        let selection = if is_editing_value {
+            app.get_selection_range()
+        } else {
+            None
+        };
         spans.extend(text_with_cursor_and_selection(
             &header.value,
             app.cursor_position,
@@ -195,7 +203,9 @@ fn draw_body(frame: &mut Frame, app: &mut App, area: Rect) {
             if has_selection {
                 let (sel_start, sel_end) = selection.unwrap();
                 // Calculate selection overlap with this line
-                let line_sel_start = sel_start.saturating_sub(line_char_start).min(line_char_count);
+                let line_sel_start = sel_start
+                    .saturating_sub(line_char_start)
+                    .min(line_char_count);
                 let line_sel_end = sel_end.saturating_sub(line_char_start).min(line_char_count);
 
                 if line_sel_end > 0 && sel_start < line_char_end && sel_end > line_char_start {
@@ -372,7 +382,11 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 "Username: ",
                 Style::default().fg(Color::DarkGray),
             )];
-            let selection = if is_editing_user { app.get_selection_range() } else { None };
+            let selection = if is_editing_user {
+                app.get_selection_range()
+            } else {
+                None
+            };
             user_spans.extend(text_with_cursor_and_selection(
                 &auth.basic_username,
                 app.cursor_position,
@@ -422,7 +436,11 @@ fn draw_auth(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 "Key Name: ",
                 Style::default().fg(Color::DarkGray),
             )];
-            let selection = if is_editing_name { app.get_selection_range() } else { None };
+            let selection = if is_editing_name {
+                app.get_selection_range()
+            } else {
+                None
+            };
             name_spans.extend(text_with_cursor_and_selection(
                 &auth.api_key_name,
                 app.cursor_position,
@@ -507,7 +525,11 @@ fn draw_params(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
             }),
         ));
 
-        let selection = if is_editing_key { app.get_selection_range() } else { None };
+        let selection = if is_editing_key {
+            app.get_selection_range()
+        } else {
+            None
+        };
         spans.extend(text_with_cursor_and_selection(
             &param.key,
             app.cursor_position,
@@ -519,7 +541,11 @@ fn draw_params(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
 
         spans.push(Span::raw("="));
 
-        let selection = if is_editing_value { app.get_selection_range() } else { None };
+        let selection = if is_editing_value {
+            app.get_selection_range()
+        } else {
+            None
+        };
         spans.extend(text_with_cursor_and_selection(
             &param.value,
             app.cursor_position,

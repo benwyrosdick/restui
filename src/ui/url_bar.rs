@@ -61,11 +61,23 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
                 spans
             } else {
                 // Selection collapsed - show just cursor
-                render_url_with_cursor(url_text, cursor_pos, char_count, editing_style, cursor_style)
+                render_url_with_cursor(
+                    url_text,
+                    cursor_pos,
+                    char_count,
+                    editing_style,
+                    cursor_style,
+                )
             }
         } else {
             // No selection, just cursor
-            render_url_with_cursor(url_text, cursor_pos, char_count, editing_style, cursor_style)
+            render_url_with_cursor(
+                url_text,
+                cursor_pos,
+                char_count,
+                editing_style,
+                cursor_style,
+            )
         }
     } else if url_text.is_empty() {
         vec![Span::styled(

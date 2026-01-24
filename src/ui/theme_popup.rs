@@ -164,17 +164,11 @@ fn draw_mini_preview(
                 .bg(preview_theme.surface),
         ),
     ]);
-    frame.render_widget(
-        Paragraph::new(header).style(bg_style),
-        preview_chunks[0],
-    );
+    frame.render_widget(Paragraph::new(header).style(bg_style), preview_chunks[0]);
 
     // Mini URL bar with method badge
     let url_line = Line::from(vec![
-        Span::styled(
-            " ",
-            Style::default()
-        ),
+        Span::styled(" ", Style::default()),
         Span::styled(
             " GET ",
             Style::default()
@@ -189,16 +183,14 @@ fn draw_mini_preview(
                 .bg(preview_theme.surface),
         ),
     ]);
-    frame.render_widget(
-        Paragraph::new(url_line).style(bg_style),
-        preview_chunks[1],
-    );
+    frame.render_widget(Paragraph::new(url_line).style(bg_style), preview_chunks[1]);
 
     // Mini response preview showing JSON with syntax highlighting
     let body_lines = vec![
-        Line::from(vec![
-            Span::styled("{", Style::default().fg(Color::White).bg(preview_theme.surface)),
-        ]),
+        Line::from(vec![Span::styled(
+            "{",
+            Style::default().fg(Color::White).bg(preview_theme.surface),
+        )]),
         Line::from(vec![
             Span::styled(
                 "  \"status\"",
@@ -251,9 +243,10 @@ fn draw_mini_preview(
                     .bg(preview_theme.surface),
             ),
         ]),
-        Line::from(vec![
-            Span::styled("}", Style::default().fg(Color::White).bg(preview_theme.surface)),
-        ]),
+        Line::from(vec![Span::styled(
+            "}",
+            Style::default().fg(Color::White).bg(preview_theme.surface),
+        )]),
     ];
 
     let body_block = Block::default()

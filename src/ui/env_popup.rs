@@ -91,7 +91,11 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
                     if is_selected { "> " } else { "  " },
                     Style::default().fg(accent),
                 ));
-                let selection = if is_editing_key { app.get_selection_range() } else { None };
+                let selection = if is_editing_key {
+                    app.get_selection_range()
+                } else {
+                    None
+                };
                 spans.extend(text_with_cursor_and_selection(
                     &item.key,
                     app.cursor_position,
@@ -101,7 +105,11 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
                     selection,
                 ));
                 spans.push(Span::raw(" = "));
-                let selection = if is_editing_value { app.get_selection_range() } else { None };
+                let selection = if is_editing_value {
+                    app.get_selection_range()
+                } else {
+                    None
+                };
                 spans.extend(text_with_cursor_and_selection(
                     &item.value,
                     app.cursor_position,
