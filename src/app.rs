@@ -1492,6 +1492,17 @@ impl App {
             .unwrap_or(self.theme().accent)
     }
 
+    /// Get the theme's accent color directly (ignores environment override)
+    /// Use this for UI elements where you want the theme's accent to be prominent
+    pub fn theme_accent_color(&self) -> Color {
+        self.theme().accent
+    }
+
+    /// Parse a color string into a ratatui Color (public version for UI modules)
+    pub fn parse_color_pub(color_str: &str) -> Color {
+        Self::parse_color(color_str)
+    }
+
     /// Parse a color string into a ratatui Color
     fn parse_color(color_str: &str) -> Color {
         match color_str.to_lowercase().as_str() {

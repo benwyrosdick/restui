@@ -185,7 +185,7 @@ fn shortcut(key: &str, desc: &str, accent: Color, muted: Color) -> Vec<Span<'sta
 
 /// Get context-sensitive keyboard shortcuts for the current panel
 fn get_panel_shortcuts(app: &App) -> Vec<Span<'static>> {
-    let accent = app.accent_color();
+    let accent = app.theme_accent_color(); // Use theme's accent for shortcut hints
     let muted = app.theme_muted_color();
     let mut spans = Vec::new();
 

@@ -70,7 +70,15 @@ pub fn draw_theme_popup(frame: &mut Frame, app: &App) {
 
     // Draw mini app preview for the selected theme
     let selected_theme = &app.themes[app.theme_popup.selected_index];
-    draw_mini_preview(frame, chunks[1], selected_theme, accent, theme);
+    // Show the theme's actual accent color in preview
+    draw_mini_preview(
+        frame,
+        chunks[1],
+        selected_theme,
+        selected_theme.accent,
+        accent,
+        theme,
+    );
 
     // Footer
     let footer = Paragraph::new(Line::from(vec![Span::styled(
@@ -100,6 +108,7 @@ fn draw_mini_preview(
     frame: &mut Frame,
     area: Rect,
     preview_theme: &Theme,
+    preview_accent: Color, // The accent that would actually be used (accounts for env override)
     current_accent: Color,
     current_theme: &Theme,
 ) {
@@ -239,7 +248,7 @@ fn draw_mini_preview(
             Span::styled(
                 "████",
                 Style::default()
-                    .fg(preview_theme.accent)
+                    .fg(preview_accent)
                     .bg(preview_theme.surface),
             ),
         ]),

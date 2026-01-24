@@ -10,7 +10,7 @@ use ratatui::{
 /// Draw the help popup centered on screen
 pub fn draw_help(frame: &mut Frame, app: &App) {
     let help_content = app.get_help_content();
-    let accent = app.accent_color();
+    let accent = app.theme_accent_color(); // Use theme's accent for help popup
 
     // Calculate popup size
     let max_key_len = help_content
