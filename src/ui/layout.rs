@@ -1,4 +1,4 @@
-use crate::app::{App, InputMode};
+use crate::app::{App, FocusedPanel, InputMode, RequestTab};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -132,33 +132,123 @@ fn draw_footer(frame: &mut Frame, app: &App, area: Rect) {
         }
     };
 
-    // Show status or error message
-    let message = if app.is_loading {
-        Span::styled(
-            format!(" Sending request {} ", app.spinner_frame()),
+    // Build footer: mode indicator + optional status + shortcuts
+    let mut footer_spans = vec![mode_indicator, Span::raw(" ")];
+
+    // Show status/error message if present
+    if app.is_loading {
+        footer_spans.push(Span::styled(
+            format!("Sending request {} ", app.spinner_frame()),
             Style::default()
                 .fg(Color::Yellow)
                 .add_modifier(Modifier::BOLD),
-        )
+        ));
     } else if let Some(err) = &app.error_message {
-        Span::styled(format!(" {} ", err), Style::default().fg(Color::Red))
-    } else if let Some(status) = &app.status_message {
-        Span::styled(
-            format!(" {} ", status),
-            Style::default().fg(app.accent_color()),
-        )
-    } else {
-        Span::styled(
-            " [S]end [N]ew [E]nv [T]heme [H]istory [?]help | Tab:switch | q:quit ",
+        footer_spans.push(Span::styled(
+            format!("{} ", err),
+            Style::default().fg(Color::Red),
+        ));
+        footer_spans.push(Span::styled(
+            "│ ",
             Style::default().fg(app.theme_muted_color()),
-        )
-    };
+        ));
+    } else if let Some(status) = &app.status_message {
+        footer_spans.push(Span::styled(
+            format!("{} ", status),
+            Style::default().fg(app.accent_color()),
+        ));
+        footer_spans.push(Span::styled(
+            "│ ",
+            Style::default().fg(app.theme_muted_color()),
+        ));
+    }
 
-    let footer_content = Line::from(vec![mode_indicator, message]);
+    // Always show shortcuts (except when loading)
+    if !app.is_loading {
+        footer_spans.extend(get_panel_shortcuts(app));
+    }
+
+    let footer_content = Line::from(footer_spans);
     let footer =
         Paragraph::new(footer_content).style(Style::default().bg(app.theme_surface_color()));
 
     frame.render_widget(footer, area);
+}
+
+/// Build a shortcut hint span with highlighted key
+fn shortcut(key: &str, desc: &str, accent: Color, muted: Color) -> Vec<Span<'static>> {
+    vec![
+        Span::styled(key.to_string(), Style::default().fg(accent)),
+        Span::styled(format!(":{} ", desc), Style::default().fg(muted)),
+    ]
+}
+
+/// Get context-sensitive keyboard shortcuts for the current panel
+fn get_panel_shortcuts(app: &App) -> Vec<Span<'static>> {
+    let accent = app.accent_color();
+    let muted = app.theme_muted_color();
+    let mut spans = Vec::new();
+
+    match app.input_mode {
+        InputMode::Editing => {
+            spans.extend(shortcut("Esc", "exit", accent, muted));
+            spans.extend(shortcut("Tab", "next field", accent, muted));
+        }
+        InputMode::Normal => {
+            match app.focused_panel {
+                FocusedPanel::RequestList => {
+                    if app.request_list_search_active {
+                        spans.extend(shortcut("Enter", "confirm", accent, muted));
+                        spans.extend(shortcut("Esc", "cancel", accent, muted));
+                    } else if app.has_request_list_filter() {
+                        spans.extend(shortcut("Enter", "select", accent, muted));
+                        spans.extend(shortcut("s", "send", accent, muted));
+                        spans.extend(shortcut("Esc", "clear", accent, muted));
+                    } else {
+                        spans.extend(shortcut("/", "search", accent, muted));
+                        spans.extend(shortcut("s", "send", accent, muted));
+                        spans.extend(shortcut("Space", "expand", accent, muted));
+                        spans.extend(shortcut("H", "history", accent, muted));
+                    }
+                }
+                FocusedPanel::UrlBar => {
+                    spans.extend(shortcut("Enter", "edit", accent, muted));
+                    spans.extend(shortcut("s", "send", accent, muted));
+                    spans.extend(shortcut("m", "method", accent, muted));
+                    spans.extend(shortcut("e", "env", accent, muted));
+                }
+                FocusedPanel::RequestEditor => {
+                    spans.extend(shortcut("Enter", "edit", accent, muted));
+                    spans.extend(shortcut("h/l", "tabs", accent, muted));
+                    spans.extend(shortcut("s", "send", accent, muted));
+                    match app.request_tab {
+                        RequestTab::Body => {
+                            spans.extend(shortcut("f", "format", accent, muted));
+                        }
+                        RequestTab::Auth => {
+                            spans.extend(shortcut("a", "auth type", accent, muted));
+                        }
+                        RequestTab::Headers | RequestTab::Params => {
+                            spans.extend(shortcut("t", "toggle", accent, muted));
+                            spans.extend(shortcut("x", "delete", accent, muted));
+                        }
+                    }
+                }
+                FocusedPanel::ResponseView => {
+                    spans.extend(shortcut("/", "search", accent, muted));
+                    spans.extend(shortcut("f", "filter", accent, muted));
+                    spans.extend(shortcut("c", "copy", accent, muted));
+                    spans.extend(shortcut("S", "save", accent, muted));
+                    spans.extend(shortcut("s", "send", accent, muted));
+                }
+            }
+            // Always show these at the end
+            spans.extend(shortcut("?", "help", accent, muted));
+            spans.extend(shortcut("q", "quit", accent, muted));
+        }
+    }
+
+    spans
 }
 
 /// Helper to create a bordered block with focus indication
