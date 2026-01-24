@@ -9,6 +9,7 @@ A terminal-based API testing tool built with Rust and Ratatui. Similar to Postma
 - **Authentication**: Bearer token, Basic auth, API Key (header or query param)
 - **Environment Variables**: Postman-style `{{variable}}` interpolation
 - **Collections**: Organize requests in collections and folders with full CRUD support
+- **Request Search**: Filter requests by name with `/`, works in collections and history
 - **Request History**: Track previously sent requests
 - **Response Viewer**: JSON syntax highlighting with scroll wheel support
 - **Response Search**: Search within response body with `/`, navigate matches with `n`/`N`
@@ -74,15 +75,21 @@ cargo build --release
 | `Tab` | Next field |
 | `Esc` | Exit edit mode |
 
-#### Collection Management (in Request List)
+#### Request List
 
 | Key | Action |
 |-----|--------|
+| `/` | Search requests by name |
+| `Esc` | Clear search filter |
+| `Space` | Toggle expand/collapse |
+| `H` | Toggle history view |
 | `C` | Create new collection |
 | `F` | Create folder in selected location |
-| `r` | Create request in selected location |
-| `R` | Rename selected item |
+| `R` | Create request in selected location |
+| `r` | Rename selected item |
 | `d` | Delete selected item |
+| `p` | Duplicate request |
+| `m` | Move item (cut/paste) |
 
 #### Response View
 
