@@ -36,6 +36,10 @@ pub fn text_with_cursor_and_selection<'a>(
 
         // Check if we have a selection
         if let Some((sel_start, sel_end)) = selection {
+            // Clamp selection bounds to valid range
+            let sel_start = sel_start.min(char_count);
+            let sel_end = sel_end.min(char_count);
+
             if sel_start != sel_end {
                 // Build spans with selection highlighting
                 let mut spans = Vec::new();

@@ -35,6 +35,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             // Empty text, show block cursor as a space
             vec![Span::styled(" ", cursor_style)]
         } else if let Some((sel_start, sel_end)) = selection {
+            // Clamp selection bounds to valid range
+            let sel_start = sel_start.min(char_count);
+            let sel_end = sel_end.min(char_count);
+
             if sel_start != sel_end {
                 // We have a selection
                 let chars: Vec<char> = url_text.chars().collect();
