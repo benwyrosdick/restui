@@ -134,7 +134,7 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     // Only process lines that will actually be displayed
     let visible_height = area.height.saturating_sub(1) as usize; // -1 for border
     let scroll_pos = app.response_scroll as usize;
-    let start_line = scroll_pos;
+    let start_line = scroll_pos.min(total_lines);
     let end_line = (scroll_pos + visible_height + 1).min(total_lines); // +1 for partial lines
 
     let search_query = app.response_search_query.to_lowercase();
@@ -144,7 +144,7 @@ fn draw_body(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         .iter()
         .enumerate()
         .skip(start_line)
-        .take(end_line - start_line)
+        .take(end_line.saturating_sub(start_line))
         .map(|(line_num, line)| {
             let is_match = app.response_search_matches.contains(&line_num);
             let is_current_match = is_match
