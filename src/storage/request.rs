@@ -9,6 +9,7 @@ pub enum HttpMethod {
     Get,
     Post,
     Put,
+    Patch,
     Delete,
 }
 
@@ -18,6 +19,7 @@ impl HttpMethod {
             HttpMethod::Get => "GET",
             HttpMethod::Post => "POST",
             HttpMethod::Put => "PUT",
+            HttpMethod::Patch => "PATCH",
             HttpMethod::Delete => "DELETE",
         }
     }
@@ -27,6 +29,7 @@ impl HttpMethod {
             HttpMethod::Get,
             HttpMethod::Post,
             HttpMethod::Put,
+            HttpMethod::Patch,
             HttpMethod::Delete,
         ]
     }
@@ -35,7 +38,8 @@ impl HttpMethod {
         match self {
             HttpMethod::Get => HttpMethod::Post,
             HttpMethod::Post => HttpMethod::Put,
-            HttpMethod::Put => HttpMethod::Delete,
+            HttpMethod::Put => HttpMethod::Patch,
+            HttpMethod::Patch => HttpMethod::Delete,
             HttpMethod::Delete => HttpMethod::Get,
         }
     }
@@ -45,7 +49,8 @@ impl HttpMethod {
             HttpMethod::Get => HttpMethod::Delete,
             HttpMethod::Post => HttpMethod::Get,
             HttpMethod::Put => HttpMethod::Post,
-            HttpMethod::Delete => HttpMethod::Put,
+            HttpMethod::Patch => HttpMethod::Put,
+            HttpMethod::Delete => HttpMethod::Patch,
         }
     }
 }

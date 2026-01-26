@@ -17,6 +17,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         crate::storage::HttpMethod::Get => Color::Green,
         crate::storage::HttpMethod::Post => Color::Yellow,
         crate::storage::HttpMethod::Put => Color::Blue,
+        crate::storage::HttpMethod::Patch => Color::Magenta,
         crate::storage::HttpMethod::Delete => Color::Red,
     };
 

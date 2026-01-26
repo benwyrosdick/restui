@@ -1,6 +1,6 @@
 [package]
 name = "restui"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 description = "A TUI API testing tool like Postman"
 authors = ["Ben Wyrosdick"]

@@ -4,7 +4,7 @@ A terminal-based API testing tool built with Rust and Ratatui. Similar to Postma
 
 ## Features
 
-- **HTTP Methods**: GET, POST, PUT, DELETE
+- **HTTP Methods**: GET, POST, PUT, PATCH, DELETE
 - **Request Editor**: Tabs for Headers, Body, Auth, and Query Params
 - **Authentication**: Bearer token, Basic auth, API Key (header or query param)
 - **Environment Variables**: Postman-style `{{variable}}` interpolation

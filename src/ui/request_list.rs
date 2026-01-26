@@ -102,6 +102,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                             crate::storage::HttpMethod::Get => Color::Green,
                             crate::storage::HttpMethod::Post => Color::Yellow,
                             crate::storage::HttpMethod::Put => Color::Blue,
+                            crate::storage::HttpMethod::Patch => Color::Magenta,
                             crate::storage::HttpMethod::Delete => Color::Red,
                         };
 
@@ -177,6 +178,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                                 crate::storage::HttpMethod::Get => Color::Green,
                                 crate::storage::HttpMethod::Post => Color::Yellow,
                                 crate::storage::HttpMethod::Put => Color::Blue,
+                                crate::storage::HttpMethod::Patch => Color::Magenta,
                                 crate::storage::HttpMethod::Delete => Color::Red,
                             };
                             (
@@ -269,6 +271,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
                 crate::storage::HttpMethod::Get => Color::Green,
                 crate::storage::HttpMethod::Post => Color::Yellow,
                 crate::storage::HttpMethod::Put => Color::Blue,
+                crate::storage::HttpMethod::Patch => Color::Magenta,
                 crate::storage::HttpMethod::Delete => Color::Red,
             };
 

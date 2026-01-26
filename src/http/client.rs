@@ -54,6 +54,7 @@ impl HttpClient {
             HttpMethod::Get => Method::GET,
             HttpMethod::Post => Method::POST,
             HttpMethod::Put => Method::PUT,
+            HttpMethod::Patch => Method::PATCH,
             HttpMethod::Delete => Method::DELETE,
         };
 
@@ -80,8 +81,11 @@ impl HttpClient {
         // Add authentication
         builder = self.apply_auth(builder, &request.auth, &interpolate);
 
-        // Add body for POST/PUT
-        if matches!(request.method, HttpMethod::Post | HttpMethod::Put) && !request.body.is_empty()
+        // Add body for POST/PUT/PATCH
+        if matches!(
+            request.method,
+            HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch
+        ) && !request.body.is_empty()
         {
             let body = interpolate(&request.body);
             builder = builder.body(body);
