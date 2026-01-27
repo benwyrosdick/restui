@@ -130,7 +130,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         .borders(Borders::ALL)
         .border_style(border_style)
         .style(Style::default().bg(app.theme_surface_color()))
-        .title(" URL ")
+        .title(" URL₂ ")
         .title_style(title_style);
 
     let url_bar = Paragraph::new(url_line).block(block);

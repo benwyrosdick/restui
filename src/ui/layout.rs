@@ -259,17 +259,48 @@ pub fn bordered_block(
     surface: Color,
     muted: Color,
 ) -> Block<'_> {
+    bordered_block_with_number(title, focused, accent, surface, muted, None)
+}
+
+/// Helper to create a bordered block with focus indication and optional panel number
+pub fn bordered_block_with_number(
+    title: &str,
+    focused: bool,
+    accent: Color,
+    surface: Color,
+    muted: Color,
+    panel_number: Option<u8>,
+) -> Block<'_> {
     let border_style = if focused {
         Style::default().fg(accent)
     } else {
         Style::default().fg(muted)
     };
 
+    let title_text = if let Some(num) = panel_number {
+        let subscript = match num {
+            1 => "₁",
+            2 => "₂",
+            3 => "₃",
+            4 => "₄",
+            5 => "₅",
+            6 => "₆",
+            7 => "₇",
+            8 => "₈",
+            9 => "₉",
+            0 => "₀",
+            _ => "",
+        };
+        format!(" {}{} ", title, subscript)
+    } else {
+        format!(" {} ", title)
+    };
+
     Block::default()
         .borders(Borders::ALL)
         .border_style(border_style)
         .style(Style::default().bg(surface))
-        .title(format!(" {} ", title))
+        .title(title_text)
         .title_style(if focused {
             Style::default().fg(accent).add_modifier(Modifier::BOLD)
         } else {

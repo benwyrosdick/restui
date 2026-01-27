@@ -8,18 +8,19 @@ use ratatui::{
     Frame,
 };
 
-use super::layout::bordered_block;
+use super::layout::bordered_block_with_number;
 use super::widgets::text_with_cursor_and_selection;
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestEditor;
     let accent = app.accent_color();
-    let block = bordered_block(
+    let block = bordered_block_with_number(
         "Request",
         focused,
         accent,
         app.theme_surface_color(),
         app.theme_muted_color(),
+        Some(3),
     );
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
