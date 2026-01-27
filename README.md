@@ -58,6 +58,7 @@ cargo build --release
 | `Ctrl+e` | Edit env variables |
 | `Ctrl+t` | Select theme |
 | `H` | Toggle history view |
+| `z` | Toggle zoom (Request/Response panes) |
 | `y` | Copy request as curl command |
 | `W` / `Ctrl+s` | Save changes to collection |
 | `?` | Show help |
@@ -91,6 +92,18 @@ cargo build --release
 | `p` | Duplicate request |
 | `m` | Move item (cut/paste) |
 
+#### Request Editor
+
+| Key | Action |
+|-----|--------|
+| `h/l` or `←/→` | Switch tabs |
+| `j/k` or `↑/↓` | Navigate fields |
+| `Enter` | Edit current field |
+| `z` | Toggle zoom (expand panel) |
+| `f` | Format JSON/GraphQL body |
+| `t` | Toggle header/param enabled |
+| `x` | Delete header/param |
+
 #### Response View
 
 | Key | Action |
@@ -102,6 +115,7 @@ cargo build --release
 | `n` / `N` | Next/previous search match |
 | `c` | Copy response to clipboard |
 | `S` | Save response to file |
+| `z` | Toggle zoom (expand panel) |
 | `Esc` | Clear search/filter |
 | Scroll wheel | Scroll response |
 

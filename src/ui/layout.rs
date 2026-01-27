@@ -44,13 +44,28 @@ pub fn draw_layout(frame: &mut Frame, app: &mut App) {
     request_list::draw(frame, app, main_chunks[0]);
 
     // Right panel: URL bar + Request editor + Response viewer
-    let right_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    // Adjust constraints based on zoom state
+    let right_constraints = match app.zoomed_panel {
+        Some(FocusedPanel::RequestEditor) => [
+            Constraint::Length(3),  // URL bar (always visible)
+            Constraint::Min(5),     // Request editor expanded
+            Constraint::Length(0),  // Response viewer hidden
+        ],
+        Some(FocusedPanel::ResponseView) => [
+            Constraint::Length(3),  // URL bar (always visible)
+            Constraint::Length(0),  // Request editor hidden
+            Constraint::Min(5),     // Response viewer expanded
+        ],
+        _ => [
             Constraint::Length(3),      // URL bar
             Constraint::Percentage(40), // Request editor
             Constraint::Min(5),         // Response viewer (fills remaining space)
-        ])
+        ],
+    };
+
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(right_constraints)
         .split(main_chunks[1]);
 
     // Store more layout areas
@@ -221,6 +236,7 @@ fn get_panel_shortcuts(app: &App) -> Vec<Span<'static>> {
                     spans.extend(shortcut("Enter", "edit", accent, muted));
                     spans.extend(shortcut("h/l", "tabs", accent, muted));
                     spans.extend(shortcut("s", "send", accent, muted));
+                    spans.extend(shortcut("z", "zoom", accent, muted));
                     match app.request_tab {
                         RequestTab::Body => {
                             spans.extend(shortcut("f", "format", accent, muted));
@@ -237,6 +253,7 @@ fn get_panel_shortcuts(app: &App) -> Vec<Span<'static>> {
                 FocusedPanel::ResponseView => {
                     spans.extend(shortcut("/", "search", accent, muted));
                     spans.extend(shortcut("f", "filter", accent, muted));
+                    spans.extend(shortcut("z", "zoom", accent, muted));
                     spans.extend(shortcut("c", "copy", accent, muted));
                     spans.extend(shortcut("S", "save", accent, muted));
                     spans.extend(shortcut("s", "send", accent, muted));

@@ -388,6 +388,9 @@ pub struct App {
     pub settings: Settings,
     pub themes: Vec<Theme>,
     pub active_theme_index: usize,
+
+    // Zoom state for Request/Response panes
+    pub zoomed_panel: Option<FocusedPanel>,
 }
 
 /// Stores the layout areas for mouse click detection
@@ -485,6 +488,7 @@ impl App {
             settings,
             themes,
             active_theme_index,
+            zoomed_panel: None,
         })
     }
 
@@ -1597,9 +1601,11 @@ impl App {
             // Panel navigation
             KeyCode::Tab => {
                 self.focused_panel = self.focused_panel.next();
+                self.update_zoom_on_panel_switch();
             }
             KeyCode::BackTab => {
                 self.focused_panel = self.focused_panel.prev();
+                self.update_zoom_on_panel_switch();
             }
 
             // Arrow keys for navigation
@@ -1703,15 +1709,33 @@ impl App {
             // Panel switching by number
             KeyCode::Char('1') => {
                 self.focused_panel = FocusedPanel::RequestList;
+                self.update_zoom_on_panel_switch();
             }
             KeyCode::Char('2') => {
                 self.focused_panel = FocusedPanel::UrlBar;
+                self.update_zoom_on_panel_switch();
             }
             KeyCode::Char('3') => {
                 self.focused_panel = FocusedPanel::RequestEditor;
+                self.update_zoom_on_panel_switch();
             }
             KeyCode::Char('4') => {
                 self.focused_panel = FocusedPanel::ResponseView;
+                self.update_zoom_on_panel_switch();
+            }
+
+            // Toggle zoom for Request/Response panes
+            KeyCode::Char('z')
+                if self.focused_panel == FocusedPanel::RequestEditor
+                    || self.focused_panel == FocusedPanel::ResponseView =>
+            {
+                if self.zoomed_panel == Some(self.focused_panel) {
+                    // Already zoomed on this panel, toggle off
+                    self.zoomed_panel = None;
+                } else {
+                    // Zoom this panel
+                    self.zoomed_panel = Some(self.focused_panel);
+                }
             }
 
             // Save current request (W for write, like vim :w)
@@ -2650,6 +2674,22 @@ impl App {
         // Adjust scroll if cursor is below visible area
         if cursor_line >= self.body_scroll as usize + visible_height {
             self.body_scroll = (cursor_line - visible_height + 1) as u16;
+        }
+    }
+
+    /// Update zoom state when switching panels - if zoomed and new panel is zoomable, zoom it
+    fn update_zoom_on_panel_switch(&mut self) {
+        if self.zoomed_panel.is_some() {
+            // Only zoom Request or Response panes
+            match self.focused_panel {
+                FocusedPanel::RequestEditor | FocusedPanel::ResponseView => {
+                    self.zoomed_panel = Some(self.focused_panel);
+                }
+                _ => {
+                    // Turn off zoom when moving to non-zoomable panels
+                    self.zoomed_panel = None;
+                }
+            }
         }
     }
 
@@ -4648,6 +4688,7 @@ impl App {
                         help.push(("Enter", "Start editing current tab"));
                         help.push(("m", "Cycle HTTP method (GET/POST/...)"));
                         help.push(("s", "Send request"));
+                        help.push(("z", "Toggle zoom (expand/collapse)"));
                         help.push(("e / E", "Switch / Reload environments"));
                         help.push(("n", "New request"));
 
@@ -4689,6 +4730,7 @@ impl App {
                         help.push(("c", "Copy response to clipboard"));
                         help.push(("S", "Save response to file"));
                         help.push(("s", "Send request again"));
+                        help.push(("z", "Toggle zoom (expand/collapse)"));
                         help.push(("/", "Search in response"));
                         help.push(("f", "JQ filter (e.g. .data, .[0])"));
                         help.push(("F", "Filter history"));
