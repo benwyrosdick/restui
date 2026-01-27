@@ -256,6 +256,8 @@ pub enum DialogType {
 pub struct DialogState {
     pub dialog_type: Option<DialogType>,
     pub input_buffer: String,
+    pub cursor_position: usize,
+    pub selection_anchor: Option<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -401,6 +403,7 @@ pub struct LayoutAreas {
     pub url_text_start: Option<u16>,
     pub body_area: Option<(u16, u16, u16, u16)>, // x, y, width, height for body text area
     pub request_content_area: Option<(u16, u16, u16, u16)>, // content area below tabs
+    pub dialog_input_area: Option<(u16, u16, u16)>, // x (text start), y, width for dialog input
 }
 
 impl App {
@@ -1165,6 +1168,22 @@ impl App {
             return;
         }
 
+        // Handle dialog input click
+        if self.dialog.dialog_type.is_some() {
+            if let Some((text_x, text_y, text_width)) = self.layout_areas.dialog_input_area {
+                if y == text_y && x >= text_x && x < text_x + text_width {
+                    // Clicked in the input area - position cursor
+                    let click_offset = (x - text_x) as usize;
+                    let text_len = self.dialog.input_buffer.chars().count();
+                    self.dialog.cursor_position = click_offset.min(text_len);
+                    self.dialog.selection_anchor = Some(self.dialog.cursor_position);
+                    return;
+                }
+            }
+            // Click outside dialog input area - ignore but don't close dialog
+            return;
+        }
+
         // Check which panel was clicked
         if let Some((px, py, pw, ph)) = self.layout_areas.request_list {
             if x >= px && x < px + pw && y >= py && y < py + ph {
@@ -1352,6 +1371,18 @@ impl App {
 
     /// Handle mouse drag events for text selection
     pub fn handle_mouse_drag(&mut self, x: u16, y: u16) {
+        // Handle dialog input drag for selection
+        if self.dialog.dialog_type.is_some() && self.dialog.selection_anchor.is_some() {
+            if let Some((text_x, text_y, text_width)) = self.layout_areas.dialog_input_area {
+                if y == text_y && x >= text_x && x < text_x + text_width {
+                    let drag_offset = (x - text_x) as usize;
+                    let text_len = self.dialog.input_buffer.chars().count();
+                    self.dialog.cursor_position = drag_offset.min(text_len);
+                }
+            }
+            return;
+        }
+
         // Only handle drag if we started in an editable field
         let Some(drag_field) = &self.mouse_drag_field else {
             return;
@@ -3336,6 +3367,7 @@ impl App {
                     path: expanded_path,
                 }),
                 input_buffer: String::new(),
+                ..Default::default()
             };
             return;
         }
@@ -3774,7 +3806,7 @@ impl App {
                 _ => {}
             },
             _ => {
-                // Input dialog handling
+                // Input dialog handling with full cursor support
                 match key.code {
                     KeyCode::Esc => {
                         self.dialog = DialogState::default();
@@ -3785,10 +3817,116 @@ impl App {
                         }
                     }
                     KeyCode::Backspace => {
-                        self.dialog.input_buffer.pop();
+                        // Handle selection deletion first
+                        if let Some(anchor) = self.dialog.selection_anchor {
+                            let cursor = self.dialog.cursor_position;
+                            let (start, end) = if anchor < cursor {
+                                (anchor, cursor)
+                            } else {
+                                (cursor, anchor)
+                            };
+                            if start != end {
+                                self.dialog_delete_selection(start, end);
+                                self.dialog.selection_anchor = None;
+                                return Ok(false);
+                            }
+                        }
+                        // Regular backspace
+                        let cursor_pos = self.dialog.cursor_position;
+                        if cursor_pos > 0 {
+                            let text = &mut self.dialog.input_buffer;
+                            let byte_pos = text
+                                .char_indices()
+                                .nth(cursor_pos - 1)
+                                .map(|(i, _)| i)
+                                .unwrap_or(0);
+                            let next_byte_pos = text
+                                .char_indices()
+                                .nth(cursor_pos)
+                                .map(|(i, _)| i)
+                                .unwrap_or(text.len());
+                            text.replace_range(byte_pos..next_byte_pos, "");
+                            self.dialog.cursor_position -= 1;
+                        }
+                    }
+                    KeyCode::Delete => {
+                        // Handle selection deletion first
+                        if let Some(anchor) = self.dialog.selection_anchor {
+                            let cursor = self.dialog.cursor_position;
+                            let (start, end) = if anchor < cursor {
+                                (anchor, cursor)
+                            } else {
+                                (cursor, anchor)
+                            };
+                            if start != end {
+                                self.dialog_delete_selection(start, end);
+                                self.dialog.selection_anchor = None;
+                                return Ok(false);
+                            }
+                        }
+                        // Regular delete
+                        let cursor_pos = self.dialog.cursor_position;
+                        let len = self.dialog.input_buffer.chars().count();
+                        if cursor_pos < len {
+                            let text = &mut self.dialog.input_buffer;
+                            let byte_pos = text
+                                .char_indices()
+                                .nth(cursor_pos)
+                                .map(|(i, _)| i)
+                                .unwrap_or(text.len());
+                            let next_byte_pos = text
+                                .char_indices()
+                                .nth(cursor_pos + 1)
+                                .map(|(i, _)| i)
+                                .unwrap_or(text.len());
+                            text.replace_range(byte_pos..next_byte_pos, "");
+                        }
+                    }
+                    KeyCode::Left => {
+                        if self.dialog.cursor_position > 0 {
+                            self.dialog.cursor_position -= 1;
+                        }
+                        self.dialog.selection_anchor = None;
+                    }
+                    KeyCode::Right => {
+                        let len = self.dialog.input_buffer.chars().count();
+                        if self.dialog.cursor_position < len {
+                            self.dialog.cursor_position += 1;
+                        }
+                        self.dialog.selection_anchor = None;
+                    }
+                    KeyCode::Home => {
+                        self.dialog.cursor_position = 0;
+                        self.dialog.selection_anchor = None;
+                    }
+                    KeyCode::End => {
+                        self.dialog.cursor_position = self.dialog.input_buffer.chars().count();
+                        self.dialog.selection_anchor = None;
                     }
                     KeyCode::Char(c) => {
-                        self.dialog.input_buffer.push(c);
+                        // Delete selection first if present
+                        if let Some(anchor) = self.dialog.selection_anchor {
+                            let cursor = self.dialog.cursor_position;
+                            let (start, end) = if anchor < cursor {
+                                (anchor, cursor)
+                            } else {
+                                (cursor, anchor)
+                            };
+                            if start != end {
+                                self.dialog_delete_selection(start, end);
+                            }
+                            self.dialog.selection_anchor = None;
+                        }
+                        // Insert character at cursor position
+                        let cursor_pos = self.dialog.cursor_position;
+                        let text = &mut self.dialog.input_buffer;
+                        let byte_pos = text
+                            .char_indices()
+                            .nth(cursor_pos)
+                            .map(|(i, _)| i)
+                            .unwrap_or(text.len());
+                        text.insert(byte_pos, c);
+                        self.dialog.cursor_position += 1;
                     }
                     _ => {}
                 }
@@ -3849,6 +3987,15 @@ impl App {
                         collection.rename_item(&item_id, &name);
                         self.save_collection(collection_index);
                         self.status_message = Some(format!("Renamed to: {}", name));
+
+                        // If this is the currently loaded request, update its name too
+                        if item_type == ItemType::Request {
+                            if let Some((src_col, src_id)) = &self.current_request_source {
+                                if *src_col == collection_index && src_id == &item_id {
+                                    self.current_request.name = name.clone();
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -3866,6 +4013,23 @@ impl App {
         }
 
         self.dialog = DialogState::default();
+    }
+
+    /// Delete selected text in dialog input
+    fn dialog_delete_selection(&mut self, start: usize, end: usize) {
+        let text = &mut self.dialog.input_buffer;
+        let start_byte = text
+            .char_indices()
+            .nth(start)
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        let end_byte = text
+            .char_indices()
+            .nth(end)
+            .map(|(i, _)| i)
+            .unwrap_or(text.len());
+        text.replace_range(start_byte..end_byte, "");
+        self.dialog.cursor_position = start;
     }
 
     fn execute_delete(&mut self, item_type: ItemType, item_id: String, collection_index: usize) {
@@ -3916,6 +4080,7 @@ impl App {
         self.dialog = DialogState {
             dialog_type: Some(DialogType::CreateCollection),
             input_buffer: String::new(),
+            ..Default::default()
         };
     }
 
@@ -3931,6 +4096,7 @@ impl App {
                 parent_folder_id,
             }),
             input_buffer: String::new(),
+            ..Default::default()
         };
     }
 
@@ -3946,11 +4112,13 @@ impl App {
                 parent_folder_id,
             }),
             input_buffer: String::new(),
+            ..Default::default()
         };
     }
 
     fn start_rename_item(&mut self) {
         if let Some((item_type, item_id, current_name)) = self.get_selected_item_info() {
+            let cursor_pos = current_name.chars().count();
             self.dialog = DialogState {
                 dialog_type: Some(DialogType::RenameItem {
                     item_type,
@@ -3958,6 +4126,8 @@ impl App {
                     collection_index: self.selected_collection,
                 }),
                 input_buffer: current_name,
+                cursor_position: cursor_pos,
+                selection_anchor: None,
             };
         }
     }
@@ -3972,6 +4142,7 @@ impl App {
                     collection_index: self.selected_collection,
                 }),
                 input_buffer: String::new(),
+                ..Default::default()
             };
         }
     }
@@ -3984,6 +4155,7 @@ impl App {
         self.dialog = DialogState {
             dialog_type: Some(DialogType::SaveResponseAs),
             input_buffer: String::new(),
+            ..Default::default()
         };
     }
 
@@ -3997,6 +4169,7 @@ impl App {
                     collection_index: self.selected_collection,
                 }),
                 input_buffer: String::new(),
+                ..Default::default()
             };
         }
     }

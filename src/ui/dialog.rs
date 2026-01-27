@@ -6,11 +6,12 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
-use std::path::PathBuf;
+
+use super::widgets::text_with_cursor_and_selection;
 
 /// Draw the dialog popup if active
-pub fn draw_dialog(frame: &mut Frame, app: &App) {
-    let Some(dialog_type) = &app.dialog.dialog_type else {
+pub fn draw_dialog(frame: &mut Frame, app: &mut App) {
+    let Some(dialog_type) = &app.dialog.dialog_type.clone() else {
         return;
     };
 
@@ -23,9 +24,11 @@ pub fn draw_dialog(frame: &mut Frame, app: &App) {
             ..
         } => {
             draw_confirm_delete_dialog(frame, app, item_type, item_name, accent);
+            app.layout_areas.dialog_input_area = None;
         }
         DialogType::ConfirmOverwrite { path } => {
             draw_confirm_overwrite_dialog(frame, app, path, accent);
+            app.layout_areas.dialog_input_area = None;
         }
         _ => {
             draw_input_dialog(frame, app, dialog_type);
@@ -33,7 +36,7 @@ pub fn draw_dialog(frame: &mut Frame, app: &App) {
     }
 }
 
-fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
+fn draw_input_dialog(frame: &mut Frame, app: &mut App, dialog_type: &DialogType) {
     let accent = app.accent_color();
     let title = match dialog_type {
         DialogType::CreateCollection => "New Collection",
@@ -52,6 +55,7 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
         DialogType::SaveResponseAs => "Path: ",
         _ => "Name: ",
     };
+    let prompt_label_len = prompt_label.chars().count() as u16;
 
     let popup_width = 50;
     let popup_height = 7;
@@ -70,28 +74,30 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Input label and field
-    let cursor = if (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        / 500)
-        % 2
-        == 0
-    {
-        "_"
-    } else {
-        " "
-    };
+    // Compute selection range
+    let selection = app.dialog.selection_anchor.map(|anchor| {
+        let cursor = app.dialog.cursor_position;
+        if anchor < cursor {
+            (anchor, cursor)
+        } else {
+            (cursor, anchor)
+        }
+    });
 
-    let prompt = Paragraph::new(Line::from(vec![
-        Span::styled(prompt_label, Style::default().fg(accent)),
-        Span::styled(
-            &app.dialog.input_buffer,
-            Style::default().fg(app.theme_text_color()),
-        ),
-        Span::styled(cursor, Style::default().fg(app.theme_muted_color())),
-    ]));
+    // Input label and field with proper cursor
+    let base_style = Style::default().fg(app.theme_text_color());
+    let mut spans = vec![Span::styled(prompt_label, Style::default().fg(accent))];
+    let text_spans = text_with_cursor_and_selection(
+        &app.dialog.input_buffer,
+        app.dialog.cursor_position,
+        true, // always editing in dialog
+        "",
+        base_style,
+        selection,
+    );
+    spans.extend(text_spans);
+
+    let prompt = Paragraph::new(Line::from(spans));
 
     let prompt_area = Rect {
         x: inner.x + 1,
@@ -100,6 +106,11 @@ fn draw_input_dialog(frame: &mut Frame, app: &App, dialog_type: &DialogType) {
         height: 1,
     };
     frame.render_widget(prompt, prompt_area);
+
+    // Store the input area for mouse handling (text starts after prompt label)
+    let text_start_x = prompt_area.x + prompt_label_len;
+    let text_width = prompt_area.width.saturating_sub(prompt_label_len);
+    app.layout_areas.dialog_input_area = Some((text_start_x, prompt_area.y, text_width));
 
     // Footer hints
     let footer = Paragraph::new(Line::from(vec![
@@ -196,7 +207,7 @@ fn draw_confirm_delete_dialog(
     );
 }
 
-fn draw_confirm_overwrite_dialog(frame: &mut Frame, app: &App, path: &PathBuf, accent: Color) {
+fn draw_confirm_overwrite_dialog(frame: &mut Frame, app: &App, path: &std::path::Path, accent: Color) {
     let filename = path.file_name().and_then(|s| s.to_str()).unwrap_or("file");
 
     let popup_width = 55;
