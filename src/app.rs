@@ -4184,11 +4184,7 @@ impl App {
     /// Delete selected text in dialog input
     fn dialog_delete_selection(&mut self, start: usize, end: usize) {
         let text = &mut self.dialog.input_buffer;
-        let start_byte = text
-            .char_indices()
-            .nth(start)
-            .map(|(i, _)| i)
-            .unwrap_or(0);
+        let start_byte = text.char_indices().nth(start).map(|(i, _)| i).unwrap_or(0);
         let end_byte = text
             .char_indices()
             .nth(end)

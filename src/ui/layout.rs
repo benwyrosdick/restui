@@ -56,14 +56,14 @@ pub fn draw_layout(frame: &mut Frame, app: &mut App) {
     // Adjust constraints based on zoom state
     let right_constraints = match app.zoomed_panel {
         Some(FocusedPanel::RequestEditor) => [
-            Constraint::Length(3),  // URL bar (always visible)
-            Constraint::Min(5),     // Request editor expanded
-            Constraint::Length(0),  // Response viewer hidden
+            Constraint::Length(3), // URL bar (always visible)
+            Constraint::Min(5),    // Request editor expanded
+            Constraint::Length(0), // Response viewer hidden
         ],
         Some(FocusedPanel::ResponseView) => [
-            Constraint::Length(3),  // URL bar (always visible)
-            Constraint::Length(0),  // Request editor hidden
-            Constraint::Min(5),     // Response viewer expanded
+            Constraint::Length(3), // URL bar (always visible)
+            Constraint::Length(0), // Request editor hidden
+            Constraint::Min(5),    // Response viewer expanded
         ],
         _ => [
             Constraint::Length(3),      // URL bar
