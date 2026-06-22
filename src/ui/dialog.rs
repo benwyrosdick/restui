@@ -49,12 +49,13 @@ fn draw_input_dialog(frame: &mut Frame, app: &mut App, dialog_type: &DialogType)
         },
         DialogType::SaveResponseAs => "Save Response As",
         DialogType::ImportPostman => "Import from Postman",
+        DialogType::ExportPostman { .. } => "Export to Postman",
         DialogType::ConfirmDelete { .. } | DialogType::ConfirmOverwrite { .. } => unreachable!(),
     };
 
     let prompt_label = match dialog_type {
         DialogType::SaveResponseAs => "Path: ",
-        DialogType::ImportPostman => "File path: ",
+        DialogType::ImportPostman | DialogType::ExportPostman { .. } => "File path: ",
         _ => "Name: ",
     };
     let prompt_label_len = prompt_label.chars().count() as u16;
@@ -62,7 +63,7 @@ fn draw_input_dialog(frame: &mut Frame, app: &mut App, dialog_type: &DialogType)
     // Path-input dialogs show a live directory preview and support Tab-completion.
     let is_path = matches!(
         dialog_type,
-        DialogType::SaveResponseAs | DialogType::ImportPostman
+        DialogType::SaveResponseAs | DialogType::ImportPostman | DialogType::ExportPostman { .. }
     );
     let preview_lines: Vec<Line> = if is_path {
         build_path_preview(app, accent)

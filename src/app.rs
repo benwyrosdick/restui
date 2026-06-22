@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::http::{HttpClient, HttpResponse};
 use crate::storage::{
-    import_postman, ApiRequest, Collection, CollectionItem, EnvironmentManager, HistoryEntry,
-    HistoryManager, HttpMethod, KeyValue, Settings,
+    export_postman, import_postman, ApiRequest, Collection, CollectionItem, EnvironmentManager,
+    HistoryEntry, HistoryManager, HttpMethod, KeyValue, Settings,
 };
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -273,6 +273,9 @@ pub enum DialogType {
     },
     SaveResponseAs,
     ImportPostman,
+    ExportPostman {
+        collection_index: usize,
+    },
     ConfirmOverwrite {
         path: PathBuf,
     },
@@ -1871,6 +1874,11 @@ impl App {
                 if self.focused_panel == FocusedPanel::RequestList && !self.show_history =>
             {
                 self.start_import_postman();
+            }
+            KeyCode::Char('X')
+                if self.focused_panel == FocusedPanel::RequestList && !self.show_history =>
+            {
+                self.start_export_postman();
             }
             KeyCode::Char('r') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_rename_item();
@@ -3974,7 +3982,9 @@ impl App {
                         // Filesystem tab-completion for path-input dialogs.
                         if matches!(
                             dialog_type,
-                            DialogType::SaveResponseAs | DialogType::ImportPostman
+                            DialogType::SaveResponseAs
+                                | DialogType::ImportPostman
+                                | DialogType::ExportPostman { .. }
                         ) {
                             self.complete_path_dialog();
                         }
@@ -4176,6 +4186,9 @@ impl App {
             DialogType::ImportPostman => {
                 self.import_postman_from_path(&name);
             }
+            DialogType::ExportPostman { collection_index } => {
+                self.export_postman_to_path(collection_index, &name);
+            }
         }
 
         self.dialog = DialogState::default();
@@ -4371,6 +4384,76 @@ impl App {
             }
             Err(e) => {
                 self.error_message = Some(format!("Failed to import Postman collection: {}", e));
+            }
+        }
+    }
+
+    fn start_export_postman(&mut self) {
+        if self.collections.is_empty() {
+            self.error_message = Some("No collection to export".to_string());
+            return;
+        }
+        let collection_index = self.selected_collection;
+        let Some(collection) = self.collections.get(collection_index) else {
+            self.error_message = Some("No collection selected".to_string());
+            return;
+        };
+
+        // Suggest a Postman-style filename based on the collection name.
+        let safe_name = collection.name.replace(['/', '\\'], "-").replace(' ', "_");
+        let suggested = format!("{}.postman_collection.json", safe_name);
+        let cursor = suggested.chars().count();
+
+        self.dialog = DialogState {
+            dialog_type: Some(DialogType::ExportPostman { collection_index }),
+            input_buffer: suggested,
+            cursor_position: cursor,
+            selection_anchor: None,
+        };
+    }
+
+    /// Write the selected collection to `path` as a Postman v2.1 collection.
+    fn export_postman_to_path(&mut self, collection_index: usize, path: &str) {
+        if collection_index >= self.collections.len() {
+            self.error_message = Some("Collection no longer exists".to_string());
+            return;
+        }
+
+        // Carry the active environment's variables (plus shared) so {{var}}
+        // placeholders are shareable and round-trip back through import.
+        let mut vars: Vec<(String, String)> = self
+            .environments
+            .shared
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        if let Some(env) = self.environments.active() {
+            vars.extend(env.variables.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
+
+        let collection = &self.collections[collection_index];
+        let result = export_postman(collection, &vars);
+        let collection_name = collection.name.clone();
+
+        let json = match result {
+            Ok(json) => json,
+            Err(e) => {
+                self.error_message = Some(format!("Failed to build Postman export: {}", e));
+                return;
+            }
+        };
+
+        let expanded = Self::expand_path(path);
+        match std::fs::write(&expanded, json) {
+            Ok(()) => {
+                self.status_message = Some(format!(
+                    "Exported \"{}\" to {}",
+                    collection_name,
+                    expanded.display()
+                ));
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Could not write file: {}", e));
             }
         }
     }
@@ -4829,6 +4912,7 @@ impl App {
                         help.push(("F", "Create folder"));
                         help.push(("R", "Create request"));
                         help.push(("I", "Import from Postman"));
+                        help.push(("X", "Export to Postman"));
                         help.push(("", "── Actions (lowercase) ──"));
                         help.push(("r", "Rename selected"));
                         help.push(("d", "Delete selected"));
