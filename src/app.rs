@@ -8,6 +8,7 @@ use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use graphql_parser::query::parse_query;
 use ratatui::style::Color;
+use ratatui::widgets::ListState;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -347,6 +348,9 @@ pub struct App {
     pub selected_item: usize,
     pub selected_history: usize,
     pub show_history: bool,
+    /// Scroll/selection state for the request-list panel so it follows the
+    /// selection off-screen instead of clipping it.
+    pub request_list_state: ListState,
 
     // Current request being edited
     pub current_request: ApiRequest,
@@ -474,6 +478,7 @@ impl App {
             selected_item: usize::MAX, // usize::MAX means collection header is selected
             selected_history: 0,
             show_history: false,
+            request_list_state: ListState::default(),
             current_request: ApiRequest::default(),
             current_request_source: None,
             response: None,
@@ -1214,8 +1219,9 @@ impl App {
                 self.input_mode = InputMode::Normal;
                 self.editing_field = None;
 
-                // Calculate which item was clicked (accounting for border)
-                let relative_y = y.saturating_sub(py + 1) as usize; // +1 for border
+                // Calculate which item was clicked (accounting for border and scroll)
+                let relative_y =
+                    y.saturating_sub(py + 1) as usize + self.request_list_state.offset();
                 if self.show_history {
                     let filtered = self.filtered_history_indices();
                     let max = filtered.len().saturating_sub(1);
@@ -1468,6 +1474,20 @@ impl App {
         }
         if self.show_theme_popup {
             return;
+        }
+
+        // Check if scroll is within the request list pane
+        if let Some((px, py, pw, ph)) = self.layout_areas.request_list {
+            if x >= px && x < px + pw && y >= py && y < py + ph {
+                for _ in 0..3 {
+                    if up {
+                        self.request_list_select_up();
+                    } else {
+                        self.request_list_select_down();
+                    }
+                }
+                return;
+            }
         }
 
         // Check if scroll is within response pane
@@ -2717,21 +2737,46 @@ impl App {
         }
     }
 
+    /// Move the request-list selection up by one (history, filtered, or tree view).
+    fn request_list_select_up(&mut self) {
+        if self.show_history {
+            self.selected_history = self.selected_history.saturating_sub(1);
+            self.load_selected_history_request_filtered();
+        } else if self.has_request_list_filter() {
+            // Filtered collection navigation
+            self.request_list_filtered_selection =
+                self.request_list_filtered_selection.saturating_sub(1);
+            self.load_filtered_collection_request();
+        } else {
+            self.navigate_collection_up();
+            self.load_selected_request();
+        }
+    }
+
+    /// Move the request-list selection down by one (history, filtered, or tree view).
+    fn request_list_select_down(&mut self) {
+        if self.show_history {
+            let filtered = self.filtered_history_indices();
+            let max = filtered.len().saturating_sub(1);
+            self.selected_history = (self.selected_history + 1).min(max);
+            self.load_selected_history_request_filtered();
+        } else if self.has_request_list_filter() {
+            // Filtered collection navigation
+            let filtered = self.filtered_collection_items();
+            let max = filtered.len().saturating_sub(1);
+            self.request_list_filtered_selection =
+                (self.request_list_filtered_selection + 1).min(max);
+            self.load_filtered_collection_request();
+        } else {
+            self.navigate_collection_down();
+            self.load_selected_request();
+        }
+    }
+
     fn navigate_up(&mut self) {
         match self.focused_panel {
             FocusedPanel::RequestList => {
-                if self.show_history {
-                    self.selected_history = self.selected_history.saturating_sub(1);
-                    self.load_selected_history_request_filtered();
-                } else if self.has_request_list_filter() {
-                    // Filtered collection navigation
-                    self.request_list_filtered_selection =
-                        self.request_list_filtered_selection.saturating_sub(1);
-                    self.load_filtered_collection_request();
-                } else {
-                    self.navigate_collection_up();
-                    self.load_selected_request();
-                }
+                self.request_list_select_up();
             }
             FocusedPanel::ResponseView => {
                 self.response_scroll = self.response_scroll.saturating_sub(1);
@@ -2752,22 +2797,7 @@ impl App {
     fn navigate_down(&mut self) {
         match self.focused_panel {
             FocusedPanel::RequestList => {
-                if self.show_history {
-                    let filtered = self.filtered_history_indices();
-                    let max = filtered.len().saturating_sub(1);
-                    self.selected_history = (self.selected_history + 1).min(max);
-                    self.load_selected_history_request_filtered();
-                } else if self.has_request_list_filter() {
-                    // Filtered collection navigation
-                    let filtered = self.filtered_collection_items();
-                    let max = filtered.len().saturating_sub(1);
-                    self.request_list_filtered_selection =
-                        (self.request_list_filtered_selection + 1).min(max);
-                    self.load_filtered_collection_request();
-                } else {
-                    self.navigate_collection_down();
-                    self.load_selected_request();
-                }
+                self.request_list_select_down();
             }
             FocusedPanel::ResponseView => {
                 self.response_scroll = self.response_scroll.saturating_add(1);
@@ -4908,7 +4938,10 @@ mod tests {
     fn test_longest_common_prefix() {
         assert_eq!(longest_common_prefix(&["sample.json"]), "sample.json");
         assert_eq!(longest_common_prefix(&["Downloads", "Documents"]), "Do");
-        assert_eq!(longest_common_prefix(&["report.json", "report.csv"]), "report.");
+        assert_eq!(
+            longest_common_prefix(&["report.json", "report.csv"]),
+            "report."
+        );
         assert_eq!(longest_common_prefix(&["apple", "banana"]), "");
         assert_eq!(longest_common_prefix(&[]), "");
     }

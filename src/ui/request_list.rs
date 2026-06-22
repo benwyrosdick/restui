@@ -11,7 +11,7 @@ use ratatui::{
 use super::layout::bordered_block_with_number;
 use super::widgets::text_with_cursor;
 
-pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let focused = app.focused_panel == FocusedPanel::RequestList;
     let accent = app.accent_color();
     let title = if app.show_history {
@@ -84,8 +84,9 @@ fn draw_search_bar(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
     }
 }
 
-fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
+fn draw_collections(frame: &mut Frame, app: &mut App, area: Rect, accent: Color) {
     let mut items: Vec<ListItem> = Vec::new();
+    let mut selected_index: Option<usize> = None;
     let has_filter = app.has_request_list_filter();
 
     if has_filter {
@@ -130,6 +131,9 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                             Style::default().fg(app.theme_muted_color()),
                         ));
 
+                        if is_selected {
+                            selected_index = Some(items.len());
+                        }
                         items.push(ListItem::new(Line::from(line_spans)));
                     }
                 }
@@ -155,9 +159,12 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 Style::default().fg(app.theme_text_color())
             };
 
+            if is_header_selected {
+                selected_index = Some(items.len());
+            }
             items.push(ListItem::new(Line::from(vec![
                 Span::styled(format!("{} ", prefix), style),
-                Span::styled(&collection.name, style),
+                Span::styled(collection.name.clone(), style),
             ])));
 
             if collection.expanded {
@@ -191,6 +198,9 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                         Style::default().fg(app.theme_text_color())
                     };
 
+                    if is_selected {
+                        selected_index = Some(items.len());
+                    }
                     items.push(ListItem::new(Line::from(vec![
                         Span::raw(indent),
                         Span::styled(icon, method_style),
@@ -209,14 +219,16 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
         };
         let placeholder =
             Paragraph::new(message).style(Style::default().fg(app.theme_muted_color()));
+        app.request_list_state.select(None);
         frame.render_widget(placeholder, area);
     } else {
         let list = List::new(items);
-        frame.render_widget(list, area);
+        app.request_list_state.select(selected_index);
+        frame.render_stateful_widget(list, area, &mut app.request_list_state);
     }
 }
 
-fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
+fn draw_history(frame: &mut Frame, app: &mut App, area: Rect, _accent: Color) {
     let has_filter = app.has_request_list_filter();
     let accent = app.accent_color();
 
@@ -239,6 +251,17 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
         .enumerate()
         .map(|(display_idx, (original_idx, entry))| (display_idx, original_idx, entry))
         .collect();
+
+    // Flat index of the selected row so the list scrolls to follow it.
+    let selected_index = visible_entries
+        .iter()
+        .position(|(display_idx, original_idx, _)| {
+            if has_filter {
+                *display_idx == app.selected_history
+            } else {
+                *original_idx == app.selected_history
+            }
+        });
 
     let items: Vec<ListItem> = visible_entries
         .iter()
@@ -301,10 +324,12 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
         };
         let placeholder =
             Paragraph::new(message).style(Style::default().fg(app.theme_muted_color()));
+        app.request_list_state.select(None);
         frame.render_widget(placeholder, area);
     } else {
         let list = List::new(items);
-        frame.render_widget(list, area);
+        app.request_list_state.select(selected_index);
+        frame.render_stateful_widget(list, area, &mut app.request_list_state);
     }
 }
 
