@@ -1,8 +1,8 @@
 use crate::config::Config;
 use crate::http::{HttpClient, HttpResponse};
 use crate::storage::{
-    ApiRequest, Collection, CollectionItem, EnvironmentManager, HistoryEntry, HistoryManager,
-    HttpMethod, KeyValue, Settings,
+    import_postman, ApiRequest, Collection, CollectionItem, EnvironmentManager, HistoryEntry,
+    HistoryManager, HttpMethod, KeyValue, Settings,
 };
 use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -13,6 +13,31 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::TryRecvError;
+
+/// Longest common prefix shared by all of the given strings (byte-safe).
+fn longest_common_prefix(items: &[&str]) -> String {
+    let Some(first) = items.first() else {
+        return String::new();
+    };
+    let mut end = first.len();
+    for s in &items[1..] {
+        let common = first
+            .bytes()
+            .zip(s.bytes())
+            .take(end)
+            .take_while(|(a, b)| a == b)
+            .count();
+        end = common;
+        if end == 0 {
+            break;
+        }
+    }
+    // Back off to a valid char boundary so slicing never panics.
+    while end > 0 && !first.is_char_boundary(end) {
+        end -= 1;
+    }
+    first[..end].to_string()
+}
 
 /// Which panel is currently focused
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -246,6 +271,7 @@ pub enum DialogType {
         collection_index: usize,
     },
     SaveResponseAs,
+    ImportPostman,
     ConfirmOverwrite {
         path: PathBuf,
     },
@@ -542,14 +568,7 @@ impl App {
 
         // If help is showing, any key closes it
         if self.show_help {
-            match key.code {
-                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => {
-                    self.show_help = false;
-                }
-                _ => {
-                    self.show_help = false;
-                }
-            }
+            self.show_help = false;
             return Ok(false);
         }
 
@@ -1828,6 +1847,11 @@ impl App {
             {
                 self.start_create_request();
             }
+            KeyCode::Char('I')
+                if self.focused_panel == FocusedPanel::RequestList && !self.show_history =>
+            {
+                self.start_import_postman();
+            }
             KeyCode::Char('r') if self.focused_panel == FocusedPanel::RequestList => {
                 self.start_rename_item();
             }
@@ -2773,13 +2797,7 @@ impl App {
             .iter()
             .enumerate()
             .filter(|(_, entry)| {
-                let path = entry
-                    .request
-                    .url
-                    .split("://")
-                    .nth(1)
-                    .and_then(|s| s.find('/').map(|i| &s[i..]))
-                    .unwrap_or(&entry.request.url);
+                let path = entry.request.url_path();
                 self.matches_request_list_filter(path)
                     || self.matches_request_list_filter(entry.request.method.as_str())
                     || self.matches_request_list_filter(&entry.request.url)
@@ -3100,17 +3118,6 @@ impl App {
         }
     }
 
-    fn load_selected_history_request(&mut self) {
-        if let Some(entry) = self.history.entries.get(self.selected_history) {
-            self.current_request = entry.request.clone();
-            self.current_request_source = None; // History items aren't linked to collections
-            self.response = None;
-            self.selected_param_index = 0;
-            self.selected_header_index = 0;
-            self.body_scroll = 0;
-        }
-    }
-
     /// Load history request using filtered index mapping
     fn load_selected_history_request_filtered(&mut self) {
         let filtered = self.filtered_history_indices();
@@ -3383,6 +3390,91 @@ impl App {
         }
     }
 
+    /// Expand a leading `~/` to the user's home directory.
+    fn expand_path(path: &str) -> PathBuf {
+        if let Some(rest) = path.strip_prefix("~/") {
+            if let Some(home) = dirs::home_dir() {
+                return home.join(rest);
+            }
+        }
+        PathBuf::from(path)
+    }
+
+    /// List filesystem entries matching the current path-dialog input.
+    /// Returns `(name, is_dir)` with directories first, then alphabetical.
+    pub fn path_completion_candidates(&self) -> Vec<(String, bool)> {
+        let input = &self.dialog.input_buffer;
+        let expanded = Self::expand_path(input);
+
+        // Decide which directory to list and the partial filename to match.
+        let (dir, prefix) = if input.is_empty() {
+            (PathBuf::from("."), String::new())
+        } else if input.ends_with('/') {
+            (expanded, String::new())
+        } else {
+            let parent = expanded
+                .parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."));
+            let file = expanded
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            (parent, file)
+        };
+
+        let mut entries: Vec<(String, bool)> = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd
+                .flatten()
+                .filter_map(|entry| {
+                    let name = entry.file_name().to_str()?.to_string();
+                    if !name.starts_with(&prefix) {
+                        return None;
+                    }
+                    // Hide dotfiles unless the user has started typing a dot.
+                    if name.starts_with('.') && !prefix.starts_with('.') {
+                        return None;
+                    }
+                    let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+                    Some((name, is_dir))
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+
+        entries.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        entries
+    }
+
+    /// Complete the path-dialog input to the longest common prefix of the
+    /// matching filesystem entries (appending `/` for a sole directory match).
+    fn complete_path_dialog(&mut self) {
+        let candidates = self.path_completion_candidates();
+        if candidates.is_empty() {
+            return;
+        }
+
+        let names: Vec<&str> = candidates.iter().map(|(name, _)| name.as_str()).collect();
+        let common = longest_common_prefix(&names);
+
+        let input = &self.dialog.input_buffer;
+        let dir_portion = match input.rfind('/') {
+            Some(i) => input[..=i].to_string(),
+            None => String::new(),
+        };
+
+        let mut completed = format!("{}{}", dir_portion, common);
+        if candidates.len() == 1 && candidates[0].1 {
+            completed.push('/');
+        }
+
+        self.dialog.input_buffer = completed;
+        self.dialog.cursor_position = self.dialog.input_buffer.chars().count();
+        self.dialog.selection_anchor = None;
+    }
+
     fn save_response_to_file(&mut self, path: &str) {
         if self.response.is_none() {
             self.error_message = Some("No response to save".to_string());
@@ -3390,15 +3482,7 @@ impl App {
         }
 
         // Expand ~ to home directory
-        let expanded_path = if path.starts_with("~/") {
-            if let Some(home) = dirs::home_dir() {
-                home.join(&path[2..])
-            } else {
-                PathBuf::from(path)
-            }
-        } else {
-            PathBuf::from(path)
-        };
+        let expanded_path = Self::expand_path(path);
 
         // Check if file exists - if so, prompt for overwrite
         if expanded_path.exists() {
@@ -3856,6 +3940,15 @@ impl App {
                             self.execute_dialog_action();
                         }
                     }
+                    KeyCode::Tab => {
+                        // Filesystem tab-completion for path-input dialogs.
+                        if matches!(
+                            dialog_type,
+                            DialogType::SaveResponseAs | DialogType::ImportPostman
+                        ) {
+                            self.complete_path_dialog();
+                        }
+                    }
                     KeyCode::Backspace => {
                         // Handle selection deletion first
                         if let Some(anchor) = self.dialog.selection_anchor {
@@ -4050,6 +4143,9 @@ impl App {
                     return;
                 }
             }
+            DialogType::ImportPostman => {
+                self.import_postman_from_path(&name);
+            }
         }
 
         self.dialog = DialogState::default();
@@ -4199,18 +4295,57 @@ impl App {
         };
     }
 
-    fn start_delete_collection(&mut self) {
-        if let Some(collection) = self.collections.get(self.selected_collection) {
-            self.dialog = DialogState {
-                dialog_type: Some(DialogType::ConfirmDelete {
-                    item_type: ItemType::Collection,
-                    item_id: collection.id.clone(),
-                    item_name: collection.name.clone(),
-                    collection_index: self.selected_collection,
-                }),
-                input_buffer: String::new(),
-                ..Default::default()
-            };
+    fn start_import_postman(&mut self) {
+        self.dialog = DialogState {
+            dialog_type: Some(DialogType::ImportPostman),
+            input_buffer: String::new(),
+            ..Default::default()
+        };
+    }
+
+    /// Read and import a Postman v2.x collection from the given file path.
+    fn import_postman_from_path(&mut self, path: &str) {
+        let expanded = Self::expand_path(path);
+
+        let content = match std::fs::read_to_string(&expanded) {
+            Ok(content) => content,
+            Err(e) => {
+                self.error_message = Some(format!("Could not read file: {}", e));
+                return;
+            }
+        };
+
+        let fallback_name = expanded
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Imported Collection");
+
+        match import_postman(&content, fallback_name) {
+            Ok(result) => {
+                self.collections.push(result.collection);
+                let idx = self.collections.len() - 1;
+                self.save_collection(idx);
+
+                let mut msg = format!(
+                    "Imported {} requests from {}",
+                    result.request_count, self.collections[idx].name
+                );
+
+                if let Some(env) = result.environment {
+                    let env_name = env.name.clone();
+                    self.environments.add(env);
+                    if let Err(e) = self.environments.save(&self.config.environments_file) {
+                        self.error_message = Some(format!("Failed to save environment: {}", e));
+                    } else {
+                        msg.push_str(&format!(" (environment \"{}\" added)", env_name));
+                    }
+                }
+
+                self.status_message = Some(msg);
+            }
+            Err(e) => {
+                self.error_message = Some(format!("Failed to import Postman collection: {}", e));
+            }
         }
     }
 
@@ -4667,6 +4802,7 @@ impl App {
                         help.push(("C", "Create collection"));
                         help.push(("F", "Create folder"));
                         help.push(("R", "Create request"));
+                        help.push(("I", "Import from Postman"));
                         help.push(("", "── Actions (lowercase) ──"));
                         help.push(("r", "Rename selected"));
                         help.push(("d", "Delete selected"));
@@ -4761,5 +4897,19 @@ impl Drop for App {
     fn drop(&mut self) {
         // Try to save on exit
         let _ = self.save();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::longest_common_prefix;
+
+    #[test]
+    fn test_longest_common_prefix() {
+        assert_eq!(longest_common_prefix(&["sample.json"]), "sample.json");
+        assert_eq!(longest_common_prefix(&["Downloads", "Documents"]), "Do");
+        assert_eq!(longest_common_prefix(&["report.json", "report.csv"]), "report.");
+        assert_eq!(longest_common_prefix(&["apple", "banana"]), "");
+        assert_eq!(longest_common_prefix(&[]), "");
     }
 }

@@ -2,7 +2,7 @@ use super::widgets::text_with_cursor_and_selection;
 use crate::app::{App, EditingField, EnvPopupSection, InputMode};
 use crate::storage::KeyValue;
 use ratatui::{
-    layout::{Alignment, Constraint, Flex, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -131,7 +131,7 @@ pub fn draw_env_popup(frame: &mut Frame, app: &mut App) {
     app.env_popup.scroll = scroll;
     app.env_popup.visible_height = visible_height;
 
-    let area = centered_rect(popup_width, popup_height, frame.area());
+    let area = super::layout::centered_rect(popup_width, popup_height, frame.area());
     frame.render_widget(Clear, area);
 
     let env_block = Block::default()
@@ -167,15 +167,6 @@ struct EnvSection<'a> {
     placeholder: &'a str,
     items: &'a Vec<KeyValue>,
     section: EnvPopupSection,
-}
-
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let horizontal = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center);
-    let vertical = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center);
-
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
 }
 
 fn truncate_with_ellipsis(input: &str, max_width: usize) -> String {

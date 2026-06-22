@@ -1,6 +1,6 @@
 use crate::app::App;
 use ratatui::{
-    layout::{Alignment, Constraint, Flex, Layout, Rect},
+    layout::{Alignment, Rect},
     style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -20,7 +20,7 @@ pub fn draw_filter_history(frame: &mut Frame, app: &App) {
 
     let popup_width = (max_filter_len + 8).min(60).max(30) as u16;
     let popup_height = (app.filter_history.len() + 4).min(15).max(7) as u16;
-    let area = centered_rect(popup_width, popup_height, frame.area());
+    let area = super::layout::centered_rect(popup_width, popup_height, frame.area());
     frame.render_widget(Clear, area);
 
     let mut lines = Vec::new();
@@ -78,13 +78,4 @@ pub fn draw_filter_history(frame: &mut Frame, app: &App) {
     )]))
     .alignment(Alignment::Center);
     frame.render_widget(footer, footer_area);
-}
-
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let horizontal = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center);
-    let vertical = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center);
-
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
 }

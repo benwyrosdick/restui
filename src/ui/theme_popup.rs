@@ -1,6 +1,6 @@
 use crate::app::{App, Theme};
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Flex, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -19,7 +19,7 @@ pub fn draw_theme_popup(frame: &mut Frame, app: &App) {
     let popup_width = 50u16;
     let popup_height = list_height + preview_height + 4; // +4 for borders and footer
 
-    let area = centered_rect(popup_width, popup_height, frame.area());
+    let area = super::layout::centered_rect(popup_width, popup_height, frame.area());
     frame.render_widget(Clear, area);
 
     // Split into list area and preview area
@@ -267,13 +267,4 @@ fn draw_mini_preview(
         Paragraph::new(body_lines).block(body_block),
         preview_chunks[2],
     );
-}
-
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let horizontal = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center);
-    let vertical = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center);
-
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
 }

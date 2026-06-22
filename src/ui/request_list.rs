@@ -99,13 +99,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                 let flattened = collection.flatten();
                 if let Some((_, item)) = flattened.get(item_idx) {
                     if let CollectionItem::Request(req) = item {
-                        let method_color = match req.method {
-                            crate::storage::HttpMethod::Get => Color::Green,
-                            crate::storage::HttpMethod::Post => Color::Yellow,
-                            crate::storage::HttpMethod::Put => Color::Blue,
-                            crate::storage::HttpMethod::Patch => Color::Magenta,
-                            crate::storage::HttpMethod::Delete => Color::Red,
-                        };
+                        let method_color = crate::ui::method_color(req.method);
 
                         let name_style = if is_selected {
                             Style::default()
@@ -175,13 +169,7 @@ fn draw_collections(frame: &mut Frame, app: &App, area: Rect, accent: Color) {
                     let indent = "  ".repeat(depth + 1);
                     let (icon, name, method_style) = match item {
                         CollectionItem::Request(req) => {
-                            let method_color = match req.method {
-                                crate::storage::HttpMethod::Get => Color::Green,
-                                crate::storage::HttpMethod::Post => Color::Yellow,
-                                crate::storage::HttpMethod::Put => Color::Blue,
-                                crate::storage::HttpMethod::Patch => Color::Magenta,
-                                crate::storage::HttpMethod::Delete => Color::Red,
-                            };
+                            let method_color = crate::ui::method_color(req.method);
                             (
                                 format!("{} ", req.method.as_str()),
                                 req.name.clone(),
@@ -243,13 +231,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
                 return true;
             }
             // Match against URL, method, or path
-            let path = entry
-                .request
-                .url
-                .split("://")
-                .nth(1)
-                .and_then(|s| s.find('/').map(|i| &s[i..]))
-                .unwrap_or(&entry.request.url);
+            let path = entry.request.url_path();
             app.matches_request_list_filter(path)
                 || app.matches_request_list_filter(entry.request.method.as_str())
                 || app.matches_request_list_filter(&entry.request.url)
@@ -268,20 +250,8 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
                 *original_idx == app.selected_history
             };
 
-            let method_color = match entry.request.method {
-                crate::storage::HttpMethod::Get => Color::Green,
-                crate::storage::HttpMethod::Post => Color::Yellow,
-                crate::storage::HttpMethod::Put => Color::Blue,
-                crate::storage::HttpMethod::Patch => Color::Magenta,
-                crate::storage::HttpMethod::Delete => Color::Red,
-            };
-
-            let status_color = match entry.status_code {
-                Some(code) if (200..300).contains(&code) => Color::Green,
-                Some(code) if code >= 400 => Color::Red,
-                Some(_) => Color::Yellow,
-                None => Color::Red,
-            };
+            let method_color = crate::ui::method_color(entry.request.method);
+            let status_color = crate::ui::status_color(entry.status_code);
 
             let status_str = entry
                 .status_code
@@ -298,13 +268,7 @@ fn draw_history(frame: &mut Frame, app: &App, area: Rect, _accent: Color) {
             };
 
             // Extract path from URL
-            let path = entry
-                .request
-                .url
-                .split("://")
-                .nth(1)
-                .and_then(|s| s.find('/').map(|i| &s[i..]))
-                .unwrap_or(&entry.request.url);
+            let path = entry.request.url_path();
 
             // Highlight matching text in path
             let path_spans = if has_filter {

@@ -53,6 +53,11 @@ impl HttpMethod {
             HttpMethod::Delete => HttpMethod::Patch,
         }
     }
+
+    /// Whether this method conventionally carries a request body.
+    pub fn allows_body(&self) -> bool {
+        matches!(self, HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch)
+    }
 }
 
 impl std::fmt::Display for HttpMethod {
@@ -188,5 +193,15 @@ impl ApiRequest {
                 .unwrap_or_else(|| self.url.clone());
             format!("{} {}", self.method, path)
         }
+    }
+
+    /// Extract the path portion of the URL (everything from the first `/`
+    /// after the host), falling back to the full URL.
+    pub fn url_path(&self) -> &str {
+        self.url
+            .split("://")
+            .nth(1)
+            .and_then(|s| s.find('/').map(|i| &s[i..]))
+            .unwrap_or(&self.url)
     }
 }

@@ -86,13 +86,7 @@ fn draw_status(
     area: Rect,
     accent: Color,
 ) {
-    let status_color = if response.is_success() {
-        Color::Green
-    } else if response.status >= 400 {
-        Color::Red
-    } else {
-        Color::Yellow
-    };
+    let status_color = crate::ui::status_color(Some(response.status));
 
     let status_line = Line::from(vec![
         Span::styled(

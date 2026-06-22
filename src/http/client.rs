@@ -81,12 +81,8 @@ impl HttpClient {
         // Add authentication
         builder = self.apply_auth(builder, &request.auth, &interpolate);
 
-        // Add body for POST/PUT/PATCH
-        if matches!(
-            request.method,
-            HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch
-        ) && !request.body.is_empty()
-        {
+        // Add body for methods that carry one
+        if request.method.allows_body() && !request.body.is_empty() {
             let body = interpolate(&request.body);
             builder = builder.body(body);
         }

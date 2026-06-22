@@ -13,13 +13,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
         app.input_mode == InputMode::Editing && app.editing_field == Some(EditingField::Url);
 
     // Method color
-    let method_color = match app.current_request.method {
-        crate::storage::HttpMethod::Get => Color::Green,
-        crate::storage::HttpMethod::Post => Color::Yellow,
-        crate::storage::HttpMethod::Put => Color::Blue,
-        crate::storage::HttpMethod::Patch => Color::Magenta,
-        crate::storage::HttpMethod::Delete => Color::Red,
-    };
+    let method_color = crate::ui::method_color(app.current_request.method);
 
     // URL display with cursor and selection if editing
     let url_text = &app.current_request.url;

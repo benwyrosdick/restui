@@ -1,6 +1,6 @@
 use crate::app::App;
 use ratatui::{
-    layout::{Alignment, Constraint, Flex, Layout, Rect},
+    layout::{Alignment, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
@@ -28,7 +28,7 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
     let popup_height = (help_content.len() + 4).min(30) as u16;
 
     // Center the popup
-    let area = centered_rect(popup_width, popup_height, frame.area());
+    let area = super::layout::centered_rect(popup_width, popup_height, frame.area());
 
     // Build help lines
     let lines: Vec<Line> = help_content
@@ -85,14 +85,4 @@ pub fn draw_help(frame: &mut Frame, app: &App) {
     )]))
     .alignment(Alignment::Center);
     frame.render_widget(footer, footer_area);
-}
-
-/// Helper function to create a centered rect
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let horizontal = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center);
-    let vertical = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center);
-
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
 }

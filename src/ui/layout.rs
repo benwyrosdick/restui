@@ -1,6 +1,6 @@
 use crate::app::{App, FocusedPanel, InputMode, RequestTab};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
@@ -12,6 +12,15 @@ use super::{request_editor, request_list, response, url_bar};
 /// Helper to convert Rect to tuple for storage
 fn rect_to_tuple(r: Rect) -> (u16, u16, u16, u16) {
     (r.x, r.y, r.width, r.height)
+}
+
+/// Center a fixed-size rect within `area`. Shared by all popup overlays.
+pub(crate) fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
+    let horizontal = Layout::horizontal([Constraint::Length(width)]).flex(Flex::Center);
+    let vertical = Layout::vertical([Constraint::Length(height)]).flex(Flex::Center);
+    let [area] = vertical.areas(area);
+    let [area] = horizontal.areas(area);
+    area
 }
 
 /// Main application layout
